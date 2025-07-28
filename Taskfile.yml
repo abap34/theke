@@ -1,0 +1,47 @@
+version: '3'
+
+dotenv: ['.env']
+
+tasks:
+  setup:
+    desc: "Initial project setup"
+    cmds:
+      - mkdir -p data uploads
+      - |
+        if [ ! -f .env ]; then
+          cp .env.example .env
+          echo "✅ Created .env from .env.example - please edit your API keys"
+        fi
+      - cd backend && rye sync
+      - cd frontend && pnpm install
+      - echo "✅ Setup complete!"
+    
+  backend:
+    desc: "Start backend server"
+    dir: backend
+    cmds:
+      - rye run uvicorn src.theke.main:app --reload
+    
+  frontend:
+    desc: "Start frontend server"
+    dir: frontend
+    cmds:
+      - pnpm dev
+
+  build:
+    desc: "Build frontend for production"
+    dir: frontend
+    cmds:
+      - pnpm build
+
+  clean:
+    desc: "Clean build artifacts"
+    cmds:
+      - rm -rf frontend/dist frontend/node_modules/.cache
+      - echo "✅ Cleaned"
+
+  docker:
+    desc: "Start with Docker"
+    cmds:
+      - docker-compose up -d
+      - echo "Started Frontend- http://localhost:5173, Backend- http://localhost:8000"
