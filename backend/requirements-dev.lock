@@ -136,6 +136,8 @@ pyflakes==3.4.0
     # via flake8
 pygments==2.19.2
     # via pytest
+pymupdf==1.26.3
+    # via theke-backend
 pypdf2==3.0.1
     # via theke-backend
 pytest==8.4.1

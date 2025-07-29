@@ -1,6 +1,6 @@
-version: '3'
+version: "3"
 
-dotenv: ['.env']
+dotenv: [".env"]
 
 tasks:
   setup:
@@ -15,13 +15,13 @@ tasks:
       - cd backend && rye sync
       - cd frontend && pnpm install
       - echo "✅ Setup complete!"
-    
+
   backend:
     desc: "Start backend server"
     dir: backend
     cmds:
       - rye run uvicorn src.theke.main:app --reload
-    
+
   frontend:
     desc: "Start frontend server"
     dir: frontend
@@ -34,11 +34,30 @@ tasks:
     cmds:
       - pnpm build
 
-  clean:
-    desc: "Clean build artifacts"
+  reset-db:
+    desc: "Reset database and uploads"
     cmds:
-      - rm -rf frontend/dist frontend/node_modules/.cache
-      - echo "✅ Cleaned"
+      - ./scripts/reset-db.sh
+
+  reset-citations:
+    desc: "Reset only citation data in database"
+    cmds:
+      - python scripts/reset-citations.py
+
+  backup-db:
+    desc: "Backup current database"
+    cmds:
+      - ./scripts/backup-db.sh
+
+  restore-db:
+    desc: "Restore database from backup (usage: task restore-db -- backup_file.db)"
+    cmds:
+      - ./scripts/restore-db.sh {{.CLI_ARGS}}
+
+  db-info:
+    desc: "Show database information"
+    cmds:
+      - python scripts/db-info.py
 
   docker:
     desc: "Start with Docker"

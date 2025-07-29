@@ -15,7 +15,9 @@ import {
   Quote,
   Share,
   ExternalLink,
-  Save
+  Save,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react'
 import { papersApi, citationsApi } from '@/services/api'
 import { toast } from '@/components/ui/Toaster'
@@ -30,6 +32,7 @@ export default function PaperDetail() {
   const [activeTab, setActiveTab] = useState<'overview' | 'notes' | 'citations' | 'related'>('overview')
   const [isEditingNotes, setIsEditingNotes] = useState(false)
   const [notesValue, setNotesValue] = useState('')
+  const [showPdfPanel, setShowPdfPanel] = useState(true)
 
   const { data: paper, isLoading } = useQuery({
     queryKey: ['paper', paperId],
@@ -37,10 +40,20 @@ export default function PaperDetail() {
     enabled: !isNaN(paperId),
   })
 
+  // Get citations where this paper cites others (references)
+  const { data: references = [] } = useQuery({
+    queryKey: ['paper-references', paperId],
+    queryFn: () => citationsApi.getAll().then(citations => 
+      citations.filter(citation => citation.citing_paper_id === paperId)
+    ),
+    enabled: !isNaN(paperId),
+  })
+
+  // Get citations where this paper is cited by others
   const { data: citations = [] } = useQuery({
     queryKey: ['paper-citations', paperId],
     queryFn: () => citationsApi.getAll().then(citations => 
-      citations.filter(citation => citation.citing_paper_id === paperId)
+      citations.filter(citation => citation.cited_paper_id === paperId)
     ),
     enabled: !isNaN(paperId),
   })
@@ -49,6 +62,7 @@ export default function PaperDetail() {
     mutationFn: () => citationsApi.extractFromPaper(paperId),
     onSuccess: (extractedCitations) => {
       toast.success('引用抽出完了', `${extractedCitations.length}件の引用を抽出しました`)
+      queryClient.invalidateQueries({ queryKey: ['paper-references', paperId] })
       queryClient.invalidateQueries({ queryKey: ['paper-citations', paperId] })
       queryClient.invalidateQueries({ queryKey: ['citations'] })
     },
@@ -155,95 +169,26 @@ export default function PaperDetail() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center space-x-4">
-          <Link 
-            to="/"
-            className="p-2 rounded-md hover:bg-gray-100"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 line-clamp-2">
-              {paper.title}
-            </h1>
-            <div className="flex items-center space-x-4 mt-2 text-sm text-gray-600">
-              <div className="flex items-center">
-                <Users className="w-4 h-4 mr-1" />
-                {paper.authors.join(', ')}
-              </div>
-              {paper.year && (
-                <div className="flex items-center">
-                  <Calendar className="w-4 h-4 mr-1" />
-                  {paper.year}
-                </div>
-              )}
-              {paper.journal && (
-                <div className="flex items-center">
-                  <BookOpen className="w-4 h-4 mr-1" />
-                  {paper.journal}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center space-x-2">
-          <button className="btn btn-outline btn-sm">
-            <Star className="w-4 h-4 mr-2" />
-            お気に入り
-          </button>
-          <Link 
-            to={`/papers/${paper.id}/edit`}
-            className="btn btn-outline btn-sm"
-          >
-            <Edit className="w-4 h-4 mr-2" />
-            編集
-          </Link>
-          <button 
-            onClick={() => deletePaperMutation.mutate()}
-            className="btn btn-outline btn-sm text-red-600 hover:bg-red-50"
-          >
-            <Trash2 className="w-4 h-4 mr-2" />
-            削除
-          </button>
-        </div>
-      </div>
-
-      {/* Tags */}
-      {paper.tags.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-6">
-          {paper.tags.map((tag) => (
-            <span
-              key={tag.id}
-              className="inline-flex items-center px-3 py-1 rounded-full text-sm"
-              style={{ 
-                backgroundColor: tag.color + '20',
-                color: tag.color
-              }}
-            >
-              {tag.name}
-            </span>
-          ))}
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* PDF Viewer */}
-        <div className="lg:col-span-2">
-          <div className="card p-6">
+    <div className="flex h-screen">
+      {/* PDF Panel - Left side, much larger */}
+      {showPdfPanel && (
+        <div className="w-[60%] h-screen bg-white border-r border-gray-200 shadow-lg flex flex-col">
+          <div className="flex-1">
             {paper.pdf_path ? (
-              <div className="aspect-[3/4] bg-gray-100 rounded-lg flex items-center justify-center">
+              <div className="space-y-4 h-full p-6">
+                <div className="h-full bg-gray-100 rounded-lg overflow-hidden">
+                  <iframe
+                    src={`http://localhost:8000/${paper.pdf_path}`}
+                    className="w-full h-full border-0"
+                    title="PDF Viewer"
+                  />
+                </div>
                 <div className="text-center">
-                  <FileText className="mx-auto h-16 w-16 text-gray-400 mb-4" />
-                  <p className="text-gray-600 mb-4">PDF ビューワー</p>
                   <a 
                     href={`http://localhost:8000/${paper.pdf_path}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="btn btn-primary btn-sm"
+                    className="btn btn-outline btn-sm"
                   >
                     <Download className="w-4 h-4 mr-2" />
                     PDFをダウンロード
@@ -251,7 +196,7 @@ export default function PaperDetail() {
                 </div>
               </div>
             ) : (
-              <div className="aspect-[3/4] bg-gray-50 rounded-lg flex items-center justify-center">
+              <div className="h-full bg-gray-50 rounded-lg flex items-center justify-center m-6">
                 <div className="text-center">
                   <FileText className="mx-auto h-16 w-16 text-gray-400 mb-4" />
                   <p className="text-gray-600">PDFファイルが見つかりません</p>
@@ -260,34 +205,118 @@ export default function PaperDetail() {
             )}
           </div>
         </div>
+      )}
 
-        {/* Sidebar */}
-        <div className="space-y-6">
-          {/* Tab Navigation */}
-          <div className="card">
-            <div className="border-b border-gray-200">
-              <nav className="flex space-x-8 px-6 py-4">
-                {[
-                  { id: 'overview', label: '概要', icon: FileText },
-                  { id: 'notes', label: 'メモ', icon: Edit },
-                  { id: 'citations', label: '引用', icon: Quote },
-                  { id: 'related', label: '関連', icon: Share },
-                ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id as any)}
-                    className={`flex items-center space-x-2 text-sm font-medium pb-2 border-b-2 ${
-                      activeTab === tab.id
-                        ? 'border-primary-600 text-primary-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    <tab.icon className="w-4 h-4" />
-                    <span>{tab.label}</span>
-                  </button>
-                ))}
-              </nav>
+      {/* Main Content - Right side */}
+      <div className="flex-1 flex flex-col">
+        <div className="p-6 mx-4 flex-1 overflow-hidden flex flex-col">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-6 flex-shrink-0">
+            <div className="flex items-center space-x-4">
+              <Link 
+                to="/"
+                className="p-2 rounded-md hover:bg-gray-100"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </Link>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900 line-clamp-2">
+                  {paper.title}
+                </h1>
+                <div className="flex items-center space-x-4 mt-2 text-sm text-gray-600">
+                  <div className="flex items-center">
+                    <Users className="w-4 h-4 mr-1" />
+                    {paper.authors.join(', ')}
+                  </div>
+                  {paper.year && (
+                    <div className="flex items-center">
+                      <Calendar className="w-4 h-4 mr-1" />
+                      {paper.year}
+                    </div>
+                  )}
+                  {paper.journal && (
+                    <div className="flex items-center">
+                      <BookOpen className="w-4 h-4 mr-1" />
+                      {paper.journal}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
+
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => setShowPdfPanel(!showPdfPanel)}
+                className="p-2 rounded-md hover:bg-gray-100"
+                title={showPdfPanel ? "PDFを隠す" : "PDFを表示"}
+              >
+                {showPdfPanel ? (
+                  <ChevronLeft className="w-5 h-5" />
+                ) : (
+                  <ChevronRight className="w-5 h-5" />
+                )}
+              </button>
+              <Link 
+                to={`/papers/${paper.id}/edit`}
+                className="btn btn-outline btn-sm"
+              >
+                <Edit className="w-4 h-4 mr-2" />
+              </Link>
+              <button 
+                onClick={() => deletePaperMutation.mutate()}
+                className="btn btn-outline btn-sm text-red-600 hover:bg-red-50"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+              </button>
+            </div>
+          </div>
+
+          {/* Tags */}
+          {paper.tags.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-6 flex-shrink-0">
+              {paper.tags.map((tag) => (
+                <span
+                  key={tag.id}
+                  className="inline-flex items-center px-3 py-1 rounded-full text-sm"
+                  style={{ 
+                    backgroundColor: tag.color + '20',
+                    color: tag.color
+                  }}
+                >
+                  {tag.name}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Main Content Area with Scroll */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="space-y-6">
+              {/* Tab Navigation */}
+              <div className="card">
+                <div className="border-b border-gray-200">
+                  <nav className="flex space-x-8 px-6 py-4">
+                    {[
+                      { id: 'overview', label: '概要', icon: FileText },
+                      { id: 'notes', label: 'メモ', icon: Edit },
+                      { id: 'citations', label: '引用', icon: Quote },
+                      { id: 'related', label: '関連', icon: Share },
+                    ].map((tab) => (
+                      <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id as any)}
+                        className={`flex items-center space-x-2 text-sm font-medium pb-2 border-b-2 ${
+                          activeTab === tab.id
+                            ? 'border-primary-600 text-primary-600'
+                            : 'border-transparent text-gray-500 hover:text-gray-700'
+                        }`}
+                      >
+                        <tab.icon className="w-4 h-4" />
+                        <span>{tab.label}</span>
+                      </button>
+                    ))}
+                  </nav>
+                </div>
 
             <div className="p-6">
               {activeTab === 'overview' && (
@@ -407,7 +436,7 @@ export default function PaperDetail() {
               )}
 
               {activeTab === 'citations' && (
-                <div className="space-y-4">
+                <div className="space-y-6">
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-medium text-gray-900">引用情報</h3>
                     <button 
@@ -426,35 +455,67 @@ export default function PaperDetail() {
                     </button>
                   </div>
                   
-                  {citations.length === 0 ? (
-                    <p className="text-sm text-gray-500">
-                      この論文の引用情報はまだ抽出されていません
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium text-gray-700">
-                        {citations.length}件の引用が見つかりました
+                  {/* References: Papers this paper cites */}
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900 mb-3 flex items-center">
+                      <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
+                      この論文が引用している論文 ({references.length}件)
+                    </h4>
+                    {references.length === 0 ? (
+                      <p className="text-sm text-gray-500 ml-4">
+                        引用している論文はまだ抽出されていません
                       </p>
-                      <div className="space-y-2 max-h-64 overflow-y-auto">
-                        {citations.slice(0, 10).map((citation, index) => (
-                          <div key={citation.id || index} className="p-2 bg-gray-50 rounded text-xs">
-                            <div className="font-medium">{citation.cited_title}</div>
+                    ) : (
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {references.slice(0, 10).map((citation, index) => (
+                          <div key={citation.id || index} className="p-3 bg-blue-50 border-l-4 border-blue-500 rounded text-xs">
+                            <div className="font-medium text-gray-900">{citation.cited_title}</div>
                             {citation.cited_authors && citation.cited_authors.length > 0 && (
-                              <div className="text-gray-600">
+                              <div className="text-gray-600 mt-1">
                                 {citation.cited_authors.join(', ')}
                               </div>
                             )}
                             {citation.cited_year && (
-                              <div className="text-gray-500">{citation.cited_year}</div>
+                              <div className="text-gray-500 mt-1">{citation.cited_year}</div>
                             )}
                           </div>
                         ))}
-                        {citations.length > 10 && (
-                          <p className="text-xs text-gray-500">他 {citations.length - 10}件...</p>
+                        {references.length > 10 && (
+                          <p className="text-xs text-gray-500 ml-4">他 {references.length - 10}件...</p>
                         )}
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
+
+                  {/* Citations: Papers that cite this paper */}
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900 mb-3 flex items-center">
+                      <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                      この論文を引用している論文 ({Array.isArray(citations) ? citations.length : 0}件)
+                    </h4>
+                    {!citations || citations.length === 0 ? (
+                      <p className="text-sm text-gray-500 ml-4">
+                        この論文を引用している論文は見つかりません
+                      </p>
+                    ) : (
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {Array.isArray(citations) ? citations.slice(0, 10).map((citation, index) => (
+                          <div key={citation.id || index} className="p-3 bg-green-50 border-l-4 border-green-500 rounded text-xs">
+                            <div className="font-medium text-gray-900">
+                              {/* Show the title of the citing paper */}
+                              論文ID: {citation.citing_paper_id}
+                            </div>
+                            <div className="text-gray-600 mt-1">
+                              この論文を引用しています
+                            </div>
+                          </div>
+                        )) : null}
+                        {Array.isArray(citations) && citations.length > 10 && (
+                          <p className="text-xs text-gray-500 ml-4">他 {citations.length - 10}件...</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -472,6 +533,8 @@ export default function PaperDetail() {
                   </Link>
                 </div>
               )}
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -12,7 +12,9 @@ import ReactFlow, {
   Connection,
   NodeTypes,
   EdgeTypes,
-  Panel
+  Panel,
+  Handle,
+  Position
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import { 
@@ -27,7 +29,7 @@ import { citationsApi, externalApi } from '@/services/api'
 import { toast } from '@/components/ui/Toaster'
 
 // Custom node component for papers
-function PaperNode({ data }: { data: any }) {
+function PaperNode({ data, id }: { data: any, id: string }) {
   const [showSuggestions, setShowSuggestions] = useState(false)
 
   const handleNodeClick = async () => {
@@ -41,21 +43,75 @@ function PaperNode({ data }: { data: any }) {
       } catch (error) {
         toast.error('エラー', '論文の検索に失敗しました')
       }
+    } else {
+      // This is a resolved paper - open Google search in new tab
+      const searchQuery = encodeURIComponent(`"${data.title}" ${data.authors?.join(' ') || ''}`)
+      window.open(`https://www.google.com/search?q=${searchQuery}`, '_blank')
     }
+  }
+
+  // Determine opacity based on focus state
+  const getOpacity = () => {
+    if (!data.focusedNodeId) {
+      // No focus - show resolved papers normally, unresolved very faded
+      return data.resolved ? 1 : 0.15
+    }
+    
+    if (data.focusedNodeId === id) {
+      // This is the focused node
+      return 1
+    }
+    
+    if (data.connectedNodeIds?.has(id)) {
+      // This node is connected to the focused node - make it fully visible
+      return 1
+    }
+    
+    // This node is not connected to the focused node - make it very faded
+    return 0.1
   }
 
   return (
     <div 
       className={`
-        px-4 py-3 rounded-lg border-2 cursor-pointer transition-all
+        px-4 py-3 rounded-lg border-2 cursor-pointer transition-all duration-300
         ${data.resolved 
           ? 'bg-white border-primary-300 hover:border-primary-500 shadow-md' 
           : 'bg-gray-100 border-gray-300 hover:border-gray-500 border-dashed'
         }
-        max-w-xs
+        max-w-sm min-w-48
       `}
+      style={{ opacity: getOpacity() }}
       onClick={handleNodeClick}
     >
+      {/* Source handle (right side) for outgoing edges */}
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="source"
+        style={{ 
+          background: '#6366f1', 
+          width: 6, 
+          height: 6,
+          border: '2px solid #fff',
+          boxShadow: '0 0 0 1px #6366f1'
+        }}
+      />
+      
+      {/* Target handle (left side) for incoming edges */}
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="target"
+        style={{ 
+          background: '#6366f1', 
+          width: 6, 
+          height: 6,
+          border: '2px solid #fff',
+          boxShadow: '0 0 0 1px #6366f1'
+        }}
+      />
+
       <div className="text-sm font-medium text-gray-900 line-clamp-2 mb-1">
         {data.title}
       </div>
@@ -84,14 +140,40 @@ const nodeTypes: NodeTypes = {
 export default function NetworkGraph() {
   const [nodes, setNodes, onNodesChange] = useNodesState([])
   const [edges, setEdges, onEdgesChange] = useEdgesState([])
-  const [layoutMode, setLayoutMode] = useState<'force' | 'hierarchical' | 'circular'>('force')
+  const [layoutMode, setLayoutMode] = useState<'force' | 'hierarchical' | 'circular' | 'tree'>('force')
   const [showUnresolved, setShowUnresolved] = useState(true)
   const [selectedYearRange, setSelectedYearRange] = useState<[number, number] | null>(null)
+  const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null)
+  const [connectedNodeIds, setConnectedNodeIds] = useState<Set<string>>(new Set())
 
   const { data: networkData, isLoading, refetch } = useQuery({
     queryKey: ['citation-network'],
     queryFn: () => citationsApi.getNetwork(),
   })
+
+  // Handle node focus to highlight connections
+  const handleNodeFocus = useCallback((nodeId: string) => {
+    if (focusedNodeId === nodeId) {
+      // Clicking the same node unfocuses
+      setFocusedNodeId(null)
+      setConnectedNodeIds(new Set())
+    } else {
+      setFocusedNodeId(nodeId)
+      
+      // Find all connected nodes
+      const connected = new Set<string>()
+      if (networkData) {
+        networkData.edges.forEach(edge => {
+          if (edge.source === nodeId) {
+            connected.add(edge.target)
+          } else if (edge.target === nodeId) {
+            connected.add(edge.source)
+          }
+        })
+      }
+      setConnectedNodeIds(connected)
+    }
+  }, [focusedNodeId, networkData])
 
   // Convert backend data to ReactFlow format
   useEffect(() => {
@@ -101,13 +183,16 @@ export default function NetworkGraph() {
         .map((node, index) => ({
           id: node.id,
           type: 'paper',
-          position: generatePosition(index, networkData.nodes.length, layoutMode),
+          position: generatePosition(index, networkData.nodes.length, layoutMode, node, networkData.nodes, networkData.edges),
           data: {
             title: node.label,
             resolved: node.resolved,
+            focusedNodeId,
+            connectedNodeIds,
+            onNodeFocus: handleNodeFocus,
             ...node.data
           },
-          draggable: true,
+          draggable: node.resolved,
         }))
 
       const flowEdges: Edge[] = networkData.edges
@@ -121,19 +206,40 @@ export default function NetworkGraph() {
           id: edge.id,
           source: edge.source,
           target: edge.target,
+          sourceHandle: 'source',
+          targetHandle: 'target',
           type: 'smoothstep',
           animated: false,
-          style: { stroke: '#6366f1', strokeWidth: 2 },
+          style: { 
+            stroke: '#6366f1', 
+            strokeWidth: 1.5,
+            strokeOpacity: getEdgeOpacity(edge.source, edge.target)
+          },
           markerEnd: {
             type: 'arrowclosed',
             color: '#6366f1',
+            width: 12,
+            height: 12
           },
         }))
 
       setNodes(flowNodes)
       setEdges(flowEdges)
     }
-  }, [networkData, layoutMode, showUnresolved, setNodes, setEdges])
+  }, [networkData, layoutMode, showUnresolved, focusedNodeId, connectedNodeIds, setNodes, setEdges, handleNodeFocus])
+
+  // Function to determine edge opacity based on focus state
+  const getEdgeOpacity = useCallback((sourceId: string, targetId: string) => {
+    if (!focusedNodeId) {
+      return 0.3 // Default low opacity for all edges
+    }
+    
+    if (focusedNodeId === sourceId || focusedNodeId === targetId) {
+      return 1 // High opacity for edges connected to focused node
+    }
+    
+    return 0.05 // Very low opacity for unrelated edges
+  }, [focusedNodeId, connectedNodeIds])
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge(params, eds)),
@@ -141,10 +247,10 @@ export default function NetworkGraph() {
   )
 
   // Generate positions based on layout mode
-  function generatePosition(index: number, total: number, mode: string) {
-    const centerX = 400
-    const centerY = 300
-    const radius = Math.min(200 + total * 10, 500)
+  function generatePosition(index: number, total: number, mode: string, node?: any, allNodes?: any[], edges?: any[]) {
+    const centerX = 600
+    const centerY = 400
+    const radius = Math.min(400 + total * 25, 1200)
 
     switch (mode) {
       case 'circular':
@@ -159,16 +265,123 @@ export default function NetworkGraph() {
         const level = Math.floor(index / levels)
         const posInLevel = index % levels
         return {
-          x: (posInLevel - levels / 2) * 200 + centerX,
-          y: level * 150 + 100
+          x: (posInLevel - levels / 2) * 400 + centerX,
+          y: level * 300 + 100
         }
+      
+      case 'tree':
+        return generateTreePosition(node, allNodes || [], edges || [])
       
       default: // force/random
         return {
-          x: Math.random() * 800 + 100,
-          y: Math.random() * 600 + 100
+          x: Math.random() * 1600 + 200,
+          y: Math.random() * 1200 + 200
         }
     }
+  }
+
+  // Tree layout algorithm with resolved papers as roots
+  function generateTreePosition(node: any, allNodes: any[], edges: any[]) {
+    const treeData = buildTreeStructure(allNodes, edges)
+    const position = treeData.positions.get(node.id)
+    
+    if (position) {
+      return position
+    }
+    
+    // Fallback for nodes not in tree
+    return {
+      x: Math.random() * 200 + 1000,
+      y: Math.random() * 200 + 600
+    }
+  }
+
+  // Build tree structure with resolved papers as roots
+  function buildTreeStructure(nodes: any[], edges: any[]) {
+    const positions = new Map<string, {x: number, y: number}>()
+    const visited = new Set<string>()
+    const levelWidth = 450
+    const levelHeight = 200
+    
+    // Find resolved papers (potential roots)
+    const resolvedNodes = nodes.filter(node => node.resolved)
+    const unresolvedNodes = nodes.filter(node => !node.resolved)
+    
+    // Build adjacency list
+    const adjacencyList = new Map<string, string[]>()
+    edges.forEach(edge => {
+      if (!adjacencyList.has(edge.source)) {
+        adjacencyList.set(edge.source, [])
+      }
+      adjacencyList.get(edge.source)!.push(edge.target)
+    })
+    
+    let currentRootX = 200
+    const rootY = 100
+    
+    // Process each resolved paper as a potential root
+    resolvedNodes.forEach((rootNode, rootIndex) => {
+      if (visited.has(rootNode.id)) return
+      
+      // Position the root
+      positions.set(rootNode.id, { x: currentRootX, y: rootY })
+      visited.add(rootNode.id)
+      
+      // BFS to position children
+      const queue: Array<{nodeId: string, level: number, indexInLevel: number}> = []
+      const children = adjacencyList.get(rootNode.id) || []
+      
+      children.forEach((childId, index) => {
+        queue.push({ nodeId: childId, level: 1, indexInLevel: index })
+      })
+      
+      const levelCounts = new Map<number, number>()
+      
+      while (queue.length > 0) {
+        const { nodeId, level, indexInLevel } = queue.shift()!
+        
+        if (visited.has(nodeId)) continue
+        visited.add(nodeId)
+        
+        // Count nodes at this level
+        const nodesAtLevel = levelCounts.get(level) || 0
+        levelCounts.set(level, nodesAtLevel + 1)
+        
+        // Position the node
+        const levelNodes = queue.filter(q => q.level === level).length + 1
+        const startX = currentRootX - (levelNodes - 1) * levelWidth / 2
+        const x = startX + indexInLevel * levelWidth
+        const y = rootY + level * levelHeight
+        
+        positions.set(nodeId, { x, y })
+        
+        // Add children to queue
+        const nodeChildren = adjacencyList.get(nodeId) || []
+        nodeChildren.forEach((childId, childIndex) => {
+          queue.push({ nodeId: childId, level: level + 1, indexInLevel: childIndex })
+        })
+      }
+      
+      // Move to next root position
+      currentRootX += Math.max(600, (levelCounts.get(1) || 1) * levelWidth + 150)
+    })
+    
+    // Position any remaining unvisited nodes (disconnected components)
+    let disconnectedX = currentRootX
+    let disconnectedY = rootY
+    
+    nodes.forEach(node => {
+      if (!visited.has(node.id)) {
+        positions.set(node.id, { x: disconnectedX, y: disconnectedY })
+        disconnectedX += 300
+        if (disconnectedX > 1800) {
+          disconnectedX = currentRootX
+          disconnectedY += 200
+        }
+      }
+    })
+    
+    return { positions }
   }
 
   const handleExportImage = () => {
@@ -193,7 +406,7 @@ export default function NetworkGraph() {
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">引用ネットワーク</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Network</h1>
             <p className="text-gray-600">
               {nodes.length}件の論文、{edges.length}件の引用関係
             </p>
@@ -211,6 +424,7 @@ export default function NetworkGraph() {
                 <option value="force">Force-directed</option>
                 <option value="hierarchical">階層</option>
                 <option value="circular">円形</option>
+                <option value="tree">ツリー</option>
               </select>
             </div>
 
@@ -263,19 +477,6 @@ export default function NetworkGraph() {
             nodeStrokeWidth={2}
             className="bg-white"
           />
-          
-          {/* Info Panel */}
-          <Panel position="top-right">
-            <div className="bg-white rounded-lg shadow-lg p-4 max-w-sm">
-              <h3 className="font-medium text-gray-900 mb-2">操作方法</h3>
-              <ul className="text-sm text-gray-600 space-y-1">
-                <li>• ドラッグしてノードを移動</li>
-                <li>• マウスホイールでズーム</li>
-                <li>• 灰色のノードをクリックして論文を検索</li>
-                <li>• 青色のノードをクリックして詳細表示</li>
-              </ul>
-            </div>
-          </Panel>
 
           {/* Empty State */}
           {nodes.length === 0 && (

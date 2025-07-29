@@ -39,7 +39,20 @@ export const papersApi = {
     limit?: number
     tag_id?: number
     search?: string
-  }): Promise<Paper[]> => {
+    sort_by?: string
+    sort_order?: string
+    year_from?: number
+    year_to?: number
+    has_summary?: boolean
+    has_pdf?: boolean
+    author?: string
+  }): Promise<{
+    papers: Paper[]
+    total: number
+    skip: number
+    limit: number
+    has_more: boolean
+  }> => {
     const response = await api.get('/api/papers', { params })
     return response.data
   },

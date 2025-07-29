@@ -1,33 +1,57 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
+import os
 
 from ..core.database import get_db
 from ..schemas import paper as paper_schema
 from ..crud import paper as paper_crud
 from ..services.pdf_processor import extract_metadata_from_pdf
 from ..services.llm_service import generate_summary
+from ..services.thumbnail_generator import thumbnail_generator
 
 router = APIRouter()
 
 
-@router.get("/", response_model=List[paper_schema.Paper])
+@router.get("/")
 def get_papers(
     skip: int = 0,
     limit: int = 100,
     tag_id: Optional[int] = None,
     search: Optional[str] = None,
+    sort_by: Optional[str] = "updated_at",
+    sort_order: Optional[str] = "desc",
+    year_from: Optional[int] = None,
+    year_to: Optional[int] = None,
+    has_summary: Optional[bool] = None,
+    has_pdf: Optional[bool] = None,
+    author: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """Get all papers with optional filtering"""
-    papers = paper_crud.get_papers(
+    """Get all papers with advanced filtering, sorting, and search"""
+    papers, total_count = paper_crud.get_papers(
         db=db, 
         skip=skip, 
         limit=limit, 
         tag_id=tag_id, 
-        search=search
+        search=search,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        year_from=year_from,
+        year_to=year_to,
+        has_summary=has_summary,
+        has_pdf=has_pdf,
+        author=author
     )
-    return papers
+    
+    return {
+        "papers": papers,
+        "total": total_count,
+        "skip": skip,
+        "limit": limit,
+        "has_more": skip + limit < total_count
+    }
 
 
 @router.post("/", response_model=paper_schema.Paper)
@@ -65,8 +89,14 @@ async def upload_paper(
 ):
     """Upload a PDF and create a paper entry with extracted metadata"""
     try:
+        # Reset file pointer to beginning
+        await file.seek(0)
+        
         # Extract metadata from PDF
         metadata = await extract_metadata_from_pdf(file, use_llm=use_llm_extraction)
+        
+        # Reset file pointer again for saving
+        await file.seek(0)
         
         # Override with form data if provided
         if title:
@@ -80,9 +110,23 @@ async def upload_paper(
         paper = paper_crud.create_paper(db=db, paper=paper_data)
         
         # Save PDF file and update paper with file path
-        file_path = await paper_crud.save_pdf_file(paper.id, file)
-        paper_update = paper_schema.PaperUpdate(pdf_path=file_path)
-        paper = paper_crud.update_paper(db=db, paper_id=paper.id, paper_update=paper_update)
+        try:
+            file_path = await paper_crud.save_pdf_file(paper.id, file)
+            print(f"Got file_path from save_pdf_file: {file_path}")
+            if file_path:
+                paper_update = paper_schema.PaperUpdate(pdf_path=file_path)
+                print(f"Updating paper with pdf_path: {file_path}")
+                updated_paper = paper_crud.update_paper(db=db, paper_id=paper.id, paper_update=paper_update)
+                if updated_paper:
+                    paper = updated_paper
+                    print(f"Paper updated successfully, pdf_path: {paper.pdf_path}")
+                else:
+                    print("Warning: update_paper returned None")
+            else:
+                print("Warning: save_pdf_file returned None")
+        except Exception as file_save_error:
+            print(f"File save error: {file_save_error}")
+            # Continue without saving file, but paper record is still created
         
         return paper
         
@@ -130,6 +174,100 @@ def delete_paper(paper_id: int, db: Session = Depends(get_db)):
     if not success:
         raise HTTPException(status_code=404, detail="Paper not found")
     return {"message": "Paper deleted successfully"}
+
+
+@router.get("/{paper_id}/thumbnail")
+def get_paper_thumbnail(paper_id: int, db: Session = Depends(get_db)):
+    """Get or generate a thumbnail for a paper's PDF"""
+    paper = paper_crud.get_paper(db=db, paper_id=paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    
+    if not paper.pdf_path:
+        raise HTTPException(status_code=404, detail="Paper does not have a PDF file")
+    
+    # Check if PDF file exists
+    if not os.path.exists(paper.pdf_path):
+        raise HTTPException(status_code=404, detail="PDF file not found")
+    
+    # Try to get existing thumbnail
+    thumbnail_path = thumbnail_generator.get_thumbnail_path(paper.pdf_path)
+    
+    # Generate thumbnail if it doesn't exist
+    if not thumbnail_path:
+        thumbnail_path = thumbnail_generator.generate_thumbnail(paper.pdf_path)
+    
+    if not thumbnail_path or not os.path.exists(thumbnail_path):
+        raise HTTPException(status_code=500, detail="Failed to generate thumbnail")
+    
+    return FileResponse(
+        thumbnail_path,
+        media_type="image/png",
+        filename=f"paper_{paper_id}_thumbnail.png"
+    )
+
+
+@router.post("/{paper_id}/generate-abstract")
+async def generate_paper_abstract(
+    paper_id: int,
+    db: Session = Depends(get_db)
+):
+    """Generate abstract for a paper using LLM"""
+    paper = paper_crud.get_paper(db=db, paper_id=paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    
+    if not paper.pdf_path:
+        raise HTTPException(status_code=400, detail="Paper does not have a PDF file")
+    
+    try:
+        # Extract text from PDF
+        from ..services.pdf_processor import extract_text_from_pdf_file
+        from pathlib import Path
+        
+        # Convert to absolute path
+        pdf_path = Path(paper.pdf_path)
+        if not pdf_path.is_absolute():
+            from ..core.config import settings
+            pdf_path = Path(settings.UPLOAD_DIR) / pdf_path.name
+        
+        if not pdf_path.exists():
+            raise HTTPException(status_code=404, detail="PDF file not found")
+        
+        text_content = await extract_text_from_pdf_file(str(pdf_path))
+        
+        # Generate abstract using LLM
+        from ..services.llm_service import get_llm_provider
+        provider = get_llm_provider()
+        
+        abstract_prompt = """以下の学術論文から、簡潔で学術的なアブストラクト（要約）を日本語で生成してください。
+
+アブストラクトは以下の要素を含むべきです：
+1. 研究の目的と背景（2-3文）
+2. 使用した手法やアプローチ（2-3文）
+3. 主要な結果や発見（2-3文）
+4. 未解決の問題や今後の研究の方向性（2-3文）
+5. 結論や意義（2-3文）
+
+全体で500-1000文字程度の簡潔なアブストラクトを作成してください。
+学術的で客観的な文体で書いてください。
+"""
+        
+        abstract = await provider.generate_summary(text_content, abstract_prompt)
+        
+        # Update paper with generated abstract
+        from ..schemas.paper import PaperUpdate
+        paper_update = PaperUpdate(abstract=abstract)
+        updated_paper = paper_crud.update_paper(db=db, paper_id=paper_id, paper_update=paper_update)
+        
+        return {
+            "message": "Abstract generated successfully", 
+            "abstract": abstract,
+            "paper_id": paper_id
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate abstract: {str(e)}")
 
 
 @router.post("/{paper_id}/summary", response_model=paper_schema.Paper)

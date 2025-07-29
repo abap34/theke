@@ -98,7 +98,7 @@ async def add_paper_from_external(
             year=external_paper.get("year"),
             doi=external_paper.get("doi"),
             journal=external_paper.get("journal"),
-            abstract=external_paper.get("abstract"),
+            abstract="",  # Keep abstract empty - generate on demand
             external_id=external_paper.get("external_id")
         )
         

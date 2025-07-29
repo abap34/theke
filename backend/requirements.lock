@@ -117,6 +117,8 @@ pydantic-settings==2.10.1
     # via theke-backend
 pygments==2.19.2
     # via pytest
+pymupdf==1.26.3
+    # via theke-backend
 pypdf2==3.0.1
     # via theke-backend
 pytest==8.4.1
