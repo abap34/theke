@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { ArrowLeft, Upload, X, Plus, Save } from 'lucide-react'
-import { papersApi, tagsApi } from '@/services/api'
+import { papersApi, tagsApi, citationsApi } from '@/services/api'
 import { PaperCreate, PaperUpdate, Tag } from '@/types'
 import { toast } from '@/components/ui/Toaster'
 
@@ -116,10 +116,13 @@ export default function PaperEdit() {
       toast.success('アップロード完了', 'PDFから論文を作成しました')
       queryClient.invalidateQueries({ queryKey: ['papers'] })
       
-      // 自動引用抽出が有効な場合、バックグラウンドで引用を抽出
+      // Add 0.5 second delay after PDF upload
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      // 自動引用抽出が有効な場合、引用抽出完了を待つ
       if (autoExtractCitations) {
         try {
-          toast.info('引用抽出中', 'バックグラウンドで引用を抽出しています...')
+          toast.info('引用抽出中', '引用を抽出しています。しばらくお待ちください...')
           await citationsApi.extractFromPaper(newPaper.id)
           toast.success('引用抽出完了', '引用の抽出が完了しました')
         } catch (error) {
@@ -128,6 +131,7 @@ export default function PaperEdit() {
         }
       }
       
+      // すべての処理が完了してから画面遷移
       navigate(`/papers/${newPaper.id}`)
     },
     onError: () => {
@@ -245,8 +249,35 @@ export default function PaperEdit() {
 
   const selectedTags = watch('selectedTags')
 
+  const isProcessing = uploadPaperMutation.isPending || createPaperMutation.isPending || updatePaperMutation.isPending
+
   return (
-    <div className="max-w-4xl mx-auto p-6">
+    <div className="max-w-4xl mx-auto p-6 relative">
+      {/* Processing Overlay */}
+      {isProcessing && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex items-center mb-4">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600 mr-3"></div>
+              <h3 className="text-lg font-medium text-gray-900">
+                {uploadPaperMutation.isPending ? 'アップロード中' : '保存中'}
+              </h3>
+            </div>
+            <p className="text-sm text-gray-600 mb-2">
+              {uploadPaperMutation.isPending ? 
+                'PDFをアップロードしています。完了まで画面を閉じないでください。' :
+                '論文を保存しています...'
+              }
+            </p>
+            {autoExtractCitations && uploadPaperMutation.isPending && (
+              <p className="text-xs text-blue-600">
+                アップロード後、自動で引用抽出を行います。
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+      
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center space-x-4">
@@ -260,6 +291,7 @@ export default function PaperEdit() {
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        <fieldset disabled={isProcessing} className="space-y-6">
         {/* PDF Upload (only for new papers) */}
         {!isEditing && (
           <div className="card p-6">
@@ -513,10 +545,20 @@ export default function PaperEdit() {
             disabled={!isValid || createPaperMutation.isPending || updatePaperMutation.isPending || uploadPaperMutation.isPending}
             className="btn btn-primary btn-md"
           >
-            <Save className="w-4 h-4 mr-2" />
-            {isEditing ? '更新' : '作成'}
+            {(createPaperMutation.isPending || updatePaperMutation.isPending || uploadPaperMutation.isPending) ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                {uploadPaperMutation.isPending ? 'アップロード中...' : '保存中...'}
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4 mr-2" />
+                {isEditing ? '更新' : '作成'}
+              </>
+            )}
           </button>
         </div>
+        </fieldset>
       </form>
     </div>
   )

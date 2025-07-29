@@ -40,3 +40,4 @@ class Paper(Base):
         "Citation", foreign_keys="Citation.cited_paper_id", back_populates="cited_paper"
     )
     tags = relationship("Tag", secondary="paper_tags", back_populates="papers")
+    jobs = relationship("Job", back_populates="paper")

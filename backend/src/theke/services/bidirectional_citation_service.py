@@ -45,7 +45,7 @@ class BidirectionalCitationService:
             await self.session.close()
 
     async def extract_references(
-        self, paper_id: int, paper_title: str, paper_doi: Optional[str] = None
+        self, paper_id: int, paper_title: str, paper_doi: Optional[str] = None, pdf_path: Optional[str] = None
     ) -> List[CitationRelation]:
         """論文が引用している文献を抽出（Forward Citations）"""
         relations = []
@@ -55,7 +55,7 @@ class BidirectionalCitationService:
 
         async with EnhancedCitationExtractor() as extractor:
             citations = await extractor.extract_citations_comprehensive(
-                paper_title=paper_title, paper_doi=paper_doi
+                paper_title=paper_title, paper_doi=paper_doi, pdf_path=pdf_path
             )
 
             for citation in citations:
@@ -118,6 +118,7 @@ class BidirectionalCitationService:
         paper_id: int,
         paper_title: str,
         paper_doi: Optional[str] = None,
+        pdf_path: Optional[str] = None,
         direction: str = "both",
     ) -> Dict[str, List[CitationRelation]]:
         """包括的な引用関係の抽出"""
@@ -133,7 +134,7 @@ class BidirectionalCitationService:
             tasks.append(
                 (
                     "references",
-                    self.extract_references(paper_id, paper_title, paper_doi),
+                    self.extract_references(paper_id, paper_title, paper_doi, pdf_path),
                 )
             )
 

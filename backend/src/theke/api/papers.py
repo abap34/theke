@@ -3,15 +3,56 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import os
+from dotenv import find_dotenv, set_key
+from pydantic import BaseModel
 
+from ..core.config import settings
 from ..core.database import get_db
-from ..schemas import paper as paper_schema
-from ..crud import paper as paper_crud
+from ..schemas import paper as paper_schema, job as job_schema
+from ..crud import paper as paper_crud, job as job_crud
 from ..services.pdf_processor import extract_metadata_from_pdf
 from ..services.llm_service import generate_summary
 from ..services.thumbnail_generator import thumbnail_generator
 
 router = APIRouter()
+
+
+class PromptUpdate(BaseModel):
+    prompt: str
+
+# Legacy request model - keeping for compatibility
+class SummaryRequest(BaseModel):
+    custom_prompt: Optional[str] = None
+
+
+@router.get("/settings/summary-prompt", response_model=PromptUpdate)
+def get_summary_prompt():
+    """Get the current summary prompt"""
+    return PromptUpdate(prompt=settings.SUMMARY_PROMPT)
+
+@router.put("/settings/summary-prompt")
+def update_summary_prompt(prompt_update: PromptUpdate):
+    """Update the summary prompt in the .env file"""
+    try:
+        env_path = find_dotenv()
+        if not env_path:
+            # If .env is not found, assume it's in the project root
+            env_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", ".env")
+
+        if not os.path.exists(env_path):
+             # Create the file if it doesn't exist
+            with open(env_path, "w") as f:
+                pass
+
+        set_key(env_path, "SUMMARY_PROMPT", prompt_update.prompt)
+        
+        # Update the settings object in memory
+        settings.SUMMARY_PROMPT = prompt_update.prompt
+        
+        return {"message": "Summary prompt updated successfully. Restart the application for the changes to take full effect."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update .env file: {str(e)}")
+
 
 
 @router.get("/")
@@ -270,43 +311,42 @@ async def generate_paper_abstract(
         raise HTTPException(status_code=500, detail=f"Failed to generate abstract: {str(e)}")
 
 
-@router.post("/{paper_id}/summary", response_model=paper_schema.Paper)
+@router.post("/{paper_id}/summary", response_model=job_schema.SummaryJobResponse)
 async def generate_paper_summary(
     paper_id: int,
+    request: job_schema.SummaryJobCreate,
     db: Session = Depends(get_db)
 ):
-    """Generate a summary for a paper using LLM"""
+    """Start summary generation job for a paper"""
     paper = paper_crud.get_paper(db=db, paper_id=paper_id)
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
     
     try:
-        # Generate summary using LLM
-        summary = await generate_summary(paper)
+        # Create background job
+        parameters = {}
+        if request.custom_prompt:
+            parameters["custom_prompt"] = request.custom_prompt
+            
+        job = job_crud.create_job(
+            db=db,
+            job_type="summary_generation",
+            paper_id=paper_id,
+            parameters=parameters
+        )
         
-        # Update paper with summary
-        paper_update = paper_schema.PaperUpdate(summary=summary)
-        updated_paper = paper_crud.update_paper(db=db, paper_id=paper_id, paper_update=paper_update)
+        # Start background processing
+        from ..services.background_tasks import start_background_task
+        start_background_task(job.id, "summary_generation")
         
-        return updated_paper
+        return job_schema.SummaryJobResponse(
+            job_id=job.id,
+            status="pending",
+            message="要約生成を開始しました。進行状況はジョブ状態APIで確認できます。"
+        )
         
-    except ValueError as e:
-        # Configuration errors (API key missing, etc.)
-        raise HTTPException(status_code=400, detail=str(e))
-    except ImportError as e:
-        # Library missing errors
-        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
-        # General API errors
-        error_msg = str(e)
-        if "API key" in error_msg.lower():
-            raise HTTPException(status_code=400, detail="Invalid API key or authentication failed")
-        elif "rate limit" in error_msg.lower():
-            raise HTTPException(status_code=429, detail="API rate limit exceeded. Please try again later")
-        elif "quota" in error_msg.lower():
-            raise HTTPException(status_code=402, detail="API quota exceeded. Please check your billing")
-        else:
-            raise HTTPException(status_code=500, detail=f"Failed to generate summary: {error_msg}")
+        raise HTTPException(status_code=500, detail=f"Failed to start summary generation: {str(e)}")
 
 
 @router.post("/{paper_id}/tags/{tag_id}")
@@ -333,3 +373,15 @@ def remove_tag_from_paper(
     if not success:
         raise HTTPException(status_code=404, detail="Paper or tag not found")
     return {"message": "Tag removed from paper successfully"}
+
+
+@router.get("/jobs/{job_id}", response_model=job_schema.JobResponse)
+def get_job_status(
+    job_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get job status and progress"""
+    job = job_crud.get_job(db=db, job_id=job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job

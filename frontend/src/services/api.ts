@@ -15,7 +15,7 @@ import type {
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
-  timeout: 10000,
+  timeout: 30000, // Default timeout: 30 seconds
 })
 
 // Request interceptor for adding auth headers if needed
@@ -101,8 +101,27 @@ export const papersApi = {
     return response.data
   },
 
-  generateSummary: async (id: number): Promise<Paper> => {
-    const response = await api.post(`/api/papers/${id}/summary`)
+  generateSummary: async (id: number, customPrompt?: string): Promise<{job_id: string, status: string, message: string}> => {
+    const response = await api.post(`/api/papers/${id}/summary`, {
+      custom_prompt: customPrompt || null
+    })
+    return response.data
+  },
+
+  getJobStatus: async (jobId: string): Promise<{
+    id: string
+    type: string
+    paper_id: number
+    status: string
+    progress: number
+    progress_message?: string
+    result?: any
+    error_message?: string
+    created_at: string
+    started_at?: string
+    completed_at?: string
+  }> => {
+    const response = await api.get(`/api/papers/jobs/${jobId}`)
     return response.data
   },
 
@@ -162,8 +181,26 @@ export const citationsApi = {
   },
 
   extractFromPaper: async (paperId: number): Promise<Citation[]> => {
-    const response = await api.post(`/api/citations/extract/${paperId}`)
-    return response.data
+    console.log(`Starting comprehensive citation extraction for paper ${paperId}...`);
+    
+    try {
+      // Use the main endpoint which uses BidirectionalCitationService for comprehensive extraction
+      const response = await api.post(`/api/citations/extract/${paperId}`, null, {
+        params: {
+          direction: 'both',        // Extract both references and citing papers
+          method: 'comprehensive'   // Use comprehensive method - pure union without filtering
+        }
+      });
+      
+      const citations = response.data || [];
+      console.log(`Main endpoint returned ${citations.length} citations`);
+      
+      return citations;
+    } catch (error: any) {
+      console.error('Citation extraction failed:', error);
+      const errorMessage = error.response?.data?.detail || error.message || 'Unknown error';
+      throw new Error(`引用抽出に失敗しました: ${errorMessage}`);
+    }
   }
 }
 
@@ -200,6 +237,18 @@ export const externalApi = {
   addFromExternal: async (externalPaper: ExternalPaper): Promise<Paper> => {
     const response = await api.post('/api/citations/add-from-external', externalPaper)
     return response.data
+  }
+}
+
+// Settings API
+export const settingsApi = {
+  getSummaryPrompt: async (): Promise<{prompt: string}> => {
+    const response = await api.get('/api/settings/summary-prompt')
+    return response.data
+  },
+
+  updateSummaryPrompt: async (prompt: string): Promise<void> => {
+    await api.put('/api/settings/summary-prompt', { prompt })
   }
 }
 

@@ -9,7 +9,7 @@ class LLMProvider(ABC):
     """Abstract base class for LLM providers"""
     
     @abstractmethod
-    async def generate_summary(self, text: str, custom_prompt: Optional[str] = None) -> str:
+    async def generate_summary(self, text: str, custom_prompt: Optional[str] = None, db_session: Optional[object] = None) -> str:
         pass
     
     @abstractmethod
@@ -29,18 +29,14 @@ class OpenAIProvider(LLMProvider):
         except ImportError:
             raise ImportError("OpenAI library not installed. Run: pip install openai")
     
-    async def generate_summary(self, text: str, custom_prompt: Optional[str] = None) -> str:
-        prompt = custom_prompt or """以下の学術論文を分析して、Markdown形式で詳細な要約を作成してください。
-
-## 要約形式:
-- **## 概要**: 論文の主要な目的と貢献を簡潔に
-- **## 背景・課題**: 研究の背景と解決したい問題
-- **## 手法・アプローチ**: 使用した手法や実験設計
-- **## 主要な結果**: 重要な発見や数値結果
-- **## 意義・インパクト**: 研究分野への貢献と今後の展望
-- **## キーワード**: 重要な技術用語やキーワード（リスト形式）
-
-日本語で、技術的な内容も含めて分かりやすく説明してください。"""
+    async def generate_summary(self, text: str, custom_prompt: Optional[str] = None, db_session: Optional[object] = None) -> str:
+        if custom_prompt:
+            prompt = custom_prompt
+        elif db_session:
+            from ..crud.setting import get_setting_value
+            prompt = get_setting_value(db_session, "summary_prompt", default=settings.SUMMARY_PROMPT)
+        else:
+            prompt = settings.SUMMARY_PROMPT
         
         try:
             response = await self.client.chat.completions.create(
@@ -97,18 +93,14 @@ class AnthropicProvider(LLMProvider):
         except ImportError:
             raise ImportError("Anthropic library not installed. Run: pip install anthropic")
     
-    async def generate_summary(self, text: str, custom_prompt: Optional[str] = None) -> str:
-        prompt = custom_prompt or """以下の学術論文を分析して、Markdown形式で詳細な要約を作成してください。
-
-## 要約形式:
-- **## 概要**: 論文の主要な目的と貢献を簡潔に
-- **## 背景・課題**: 研究の背景と解決したい問題
-- **## 手法・アプローチ**: 使用した手法や実験設計
-- **## 主要な結果**: 重要な発見や数値結果
-- **## 意義・インパクト**: 研究分野への貢献と今後の展望
-- **## キーワード**: 重要な技術用語やキーワード（リスト形式）
-
-日本語で、技術的な内容も含めて分かりやすく説明してください。"""
+    async def generate_summary(self, text: str, custom_prompt: Optional[str] = None, db_session: Optional[object] = None) -> str:
+        if custom_prompt:
+            prompt = custom_prompt
+        elif db_session:
+            from ..crud.setting import get_setting_value
+            prompt = get_setting_value(db_session, "summary_prompt", default=settings.SUMMARY_PROMPT)
+        else:
+            prompt = settings.SUMMARY_PROMPT
         
         try:
             message = await self.client.messages.create(
@@ -126,19 +118,15 @@ class AnthropicProvider(LLMProvider):
         except Exception as e:
             raise Exception(f"Anthropic API error: {str(e)}")
     
-    async def generate_summary_from_pdf(self, pdf_path: str, custom_prompt: Optional[str] = None) -> str:
+    async def generate_summary_from_pdf(self, pdf_path: str, custom_prompt: Optional[str] = None, db_session: Optional[object] = None) -> str:
         """Generate summary directly from PDF using Anthropic's native PDF support"""
-        prompt = custom_prompt or """この学術論文PDFを分析して、Markdown形式で詳細な要約を作成してください。
-
-## 要約形式:
-- **## 概要**: 論文の主要な目的と貢献を簡潔に
-- **## 背景・課題**: 研究の背景と解決したい問題
-- **## 手法・アプローチ**: 使用した手法や実験設計
-- **## 主要な結果**: 重要な発見や数値結果
-- **## 意義・インパクト**: 研究分野への貢献と今後の展望
-- **## キーワード**: 重要な技術用語やキーワード（リスト形式）
-
-日本語で、技術的な内容も含めて分かりやすく説明してください。"""
+        if custom_prompt:
+            prompt = custom_prompt
+        elif db_session:
+            from ..crud.setting import get_setting_value
+            prompt = get_setting_value(db_session, "summary_prompt", default=settings.SUMMARY_PROMPT)
+        else:
+            prompt = settings.SUMMARY_PROMPT
         
         try:
             import base64
@@ -295,7 +283,7 @@ def get_llm_provider() -> LLMProvider:
         raise ValueError(f"Unsupported LLM provider: {settings.LLM_PROVIDER}. Supported providers: openai, anthropic")
 
 
-async def generate_summary(paper) -> str:
+async def generate_summary(paper, custom_prompt: Optional[str] = None, db_session: Optional[object] = None) -> str:
     """Generate a summary for a paper using the configured LLM provider"""
     provider = get_llm_provider()
     
@@ -304,7 +292,7 @@ async def generate_summary(paper) -> str:
         try:
             import os
             if os.path.exists(paper.pdf_path):
-                return await provider.generate_summary_from_pdf(paper.pdf_path)
+                return await provider.generate_summary_from_pdf(paper.pdf_path, custom_prompt=custom_prompt, db_session=db_session)
         except Exception as e:
             print(f"PDF summarization failed, falling back to text summarization: {e}")
     
@@ -335,7 +323,7 @@ async def generate_summary(paper) -> str:
     if not text.strip():
         raise ValueError("No text content available for summarization")
     
-    return await provider.generate_summary(text)
+    return await provider.generate_summary(text, custom_prompt=custom_prompt, db_session=db_session)
 
 
 async def extract_citations_from_paper(paper) -> list[Dict[str, Any]]:

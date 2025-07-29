@@ -24,7 +24,6 @@ class ExtractedCitation:
     doi: Optional[str] = None
     journal: Optional[str] = None
     source: str = "unknown"
-    confidence: float = 0.0
     context: Optional[str] = None
     page_number: Optional[int] = None
 
@@ -44,25 +43,36 @@ class EnhancedCitationExtractor:
                     "title": 4,
                     "journal": 5,
                 },
-                "confidence": 0.85,
             },
             # APA形式: Author, A. (2020). Title. Journal, 1(1), 1-10.
             {
                 "pattern": r"([^()]+)\s*\((\d{4})\)\.\s*([^.]+)\.\s*([^,]+),?\s*(\d+)?",
                 "groups": {"authors": 1, "year": 2, "title": 3, "journal": 4},
-                "confidence": 0.80,
             },
             # 自然言語形式: According to Smith et al. (2020), the method...
             {
                 "pattern": r"([A-Z][a-zA-Z\s,]+et al\.?)\s*\((\d{4})\)",
                 "groups": {"authors": 1, "year": 2},
-                "confidence": 0.60,
             },
             # DOI pattern
             {
                 "pattern": r"(?:doi:|DOI:)\s*(10\.\d+/[^\s]+)",
                 "groups": {"doi": 1},
-                "confidence": 0.90,
+            },
+            # 積極的な引用パターン - より多くのパターンを追加
+            {
+                "pattern": r"([A-Z][a-zA-Z\s]+)\s*\((\d{4})\)[,.]?\s*([^.\n]+)\.?",
+                "groups": {"authors": 1, "year": 2, "title": 3},
+            },
+            # 番号付き引用
+            {
+                "pattern": r"\[(\d+)\]\s*([^\n]+)\n",
+                "groups": {"number": 1, "title": 2},
+            },
+            # より緩い形式の引用
+            {
+                "pattern": r"([A-Z][^(]+)\s*\((\d{4}[a-z]?)\)",
+                "groups": {"authors": 1, "year": 2},
             },
         ]
 
@@ -89,15 +99,6 @@ class EnhancedCitationExtractor:
         if hasattr(self, "session"):
             await self.session.close()
 
-    def calculate_confidence_score(self, source: str, match_quality: float) -> float:
-        """Calculate confidence score based on source and match quality"""
-        base_scores = {
-            "crossref": 0.95,
-            "openalex": 0.90,
-            "semantic_scholar": 0.80,
-            "pdf_text": 0.70,
-        }
-        return base_scores.get(source, 0.50) * match_quality
 
     async def extract_citations_comprehensive(
         self,
@@ -148,8 +149,8 @@ class EnhancedCitationExtractor:
         # Phase 3: 重複除去と統合
         merged_citations = self._merge_and_deduplicate(all_citations)
 
-        # 信頼性スコアでソート
-        merged_citations.sort(key=lambda x: x.confidence, reverse=True)
+        # ソース別に整理
+        merged_citations.sort(key=lambda x: x.source)
 
         print(f"Total citations after merge: {len(merged_citations)}")
         return merged_citations
@@ -252,14 +253,8 @@ class EnhancedCitationExtractor:
                 end = min(len(text), match.end() + 100)
                 citation.context = text[start:end].replace("\n", " ").strip()
 
-                # 信頼性スコアを計算
-                match_quality = self._calculate_match_quality(citation)
-                citation.confidence = self.calculate_confidence_score(
-                    "pdf_text", match_quality
-                )
-
-                if citation.confidence > 0.3:  # 閾値を超えた場合のみ追加
-                    citations.append(citation)
+                # 全ての引用を追加（フィルタリングなし）
+                citations.append(citation)
 
         return citations
 
@@ -279,7 +274,6 @@ class EnhancedCitationExtractor:
                 authors=self._parse_authors(match.group(1)),
                 year=int(match.group(2)),
                 source="pdf_text",
-                confidence=0.5,  # インライン引用は確信度が低い
             )
 
             citation.page_number = self._find_page_number(match.group(0), page_texts)
@@ -319,20 +313,6 @@ class EnhancedCitationExtractor:
                 return page_num
         return None
 
-    def _calculate_match_quality(self, citation: ExtractedCitation) -> float:
-        """マッチの品質を評価"""
-        score = 0.0
-
-        if citation.title:
-            score += 0.4
-        if citation.authors:
-            score += 0.3
-        if citation.year:
-            score += 0.2
-        if citation.doi:
-            score += 0.1
-
-        return min(score, 1.0)
 
     async def _extract_from_crossref(
         self, doi: Optional[str], title: str
@@ -381,10 +361,6 @@ class EnhancedCitationExtractor:
                         if "container-title" in ref:
                             citation.journal = ref["container-title"]
 
-                        match_quality = self._calculate_match_quality(citation)
-                        citation.confidence = self.calculate_confidence_score(
-                            "crossref", match_quality
-                        )
 
                         citations.append(citation)
 
@@ -459,14 +435,6 @@ class EnhancedCitationExtractor:
                                             "display_name"
                                         )
 
-                                        match_quality = self._calculate_match_quality(
-                                            citation
-                                        )
-                                        citation.confidence = (
-                                            self.calculate_confidence_score(
-                                                "openalex", match_quality
-                                            )
-                                        )
 
                                         citations.append(citation)
 
@@ -521,10 +489,6 @@ class EnhancedCitationExtractor:
                             external_ids = ref.get("externalIds", {})
                             citation.doi = external_ids.get("DOI")
 
-                            match_quality = self._calculate_match_quality(citation)
-                            citation.confidence = self.calculate_confidence_score(
-                                "semantic_scholar", match_quality
-                            )
 
                             citations.append(citation)
 
@@ -551,23 +515,21 @@ class EnhancedCitationExtractor:
                     break
 
             if similar_citation:
-                # より信頼性の高い情報で更新
-                if citation.confidence > similar_citation.confidence:
-                    # 欠損情報を補完
-                    if not similar_citation.title and citation.title:
-                        similar_citation.title = citation.title
-                    if not similar_citation.authors and citation.authors:
-                        similar_citation.authors = citation.authors
-                    if not similar_citation.year and citation.year:
-                        similar_citation.year = citation.year
-                    if not similar_citation.doi and citation.doi:
-                        similar_citation.doi = citation.doi
-                    if not similar_citation.journal and citation.journal:
-                        similar_citation.journal = citation.journal
+                # 欠損情報を補完（信頼性に関係なく）
+                if not similar_citation.title and citation.title:
+                    similar_citation.title = citation.title
+                if not similar_citation.authors and citation.authors:
+                    similar_citation.authors = citation.authors
+                if not similar_citation.year and citation.year:
+                    similar_citation.year = citation.year
+                if not similar_citation.doi and citation.doi:
+                    similar_citation.doi = citation.doi
+                if not similar_citation.journal and citation.journal:
+                    similar_citation.journal = citation.journal
 
-                    # ソースと信頼性を更新
-                    similar_citation.source = citation.source
-                    similar_citation.confidence = citation.confidence
+                # ソースを統合
+                if citation.source not in similar_citation.source:
+                    similar_citation.source = f"{similar_citation.source},{citation.source}"
             else:
                 merged.append(citation)
 

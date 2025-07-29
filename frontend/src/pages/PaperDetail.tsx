@@ -33,6 +33,13 @@ export default function PaperDetail() {
   const [isEditingNotes, setIsEditingNotes] = useState(false)
   const [notesValue, setNotesValue] = useState('')
   const [showPdfPanel, setShowPdfPanel] = useState(true)
+  const [summaryJobId, setSummaryJobId] = useState<string | null>(null)
+  const [summaryJobStatus, setSummaryJobStatus] = useState<{
+    status: string
+    progress: number
+    progress_message?: string
+    error_message?: string
+  } | null>(null)
 
   const { data: paper, isLoading } = useQuery({
     queryKey: ['paper', paperId],
@@ -61,37 +68,52 @@ export default function PaperDetail() {
   const extractCitationsMutation = useMutation({
     mutationFn: () => citationsApi.extractFromPaper(paperId),
     onSuccess: (extractedCitations) => {
-      toast.success('引用抽出完了', `${extractedCitations.length}件の引用を抽出しました`)
+      console.log('Extracted citations:', extractedCitations);
+      
+      // Count sources if available
+      const sourceCounts: Record<string, number> = {};
+      extractedCitations.forEach(citation => {
+        const source = citation.extraction_source || 'comprehensive';
+        sourceCounts[source] = (sourceCounts[source] || 0) + 1;
+      });
+      
+      const sourceInfo = Object.keys(sourceCounts).length > 0 
+        ? '\n' + Object.entries(sourceCounts)
+            .map(([source, count]) => `${source}: ${count}件`)
+            .join(', ')
+        : '';
+      
+      toast.success(
+        '統合引用抽出完了', 
+        `合計${extractedCitations.length}件の引用を抽出しました（全ソース統合）${sourceInfo}`
+      );
+      
       queryClient.invalidateQueries({ queryKey: ['paper-references', paperId] })
       queryClient.invalidateQueries({ queryKey: ['paper-citations', paperId] })
       queryClient.invalidateQueries({ queryKey: ['citations'] })
     },
     onError: (error: any) => {
-      let errorMessage = '引用抽出に失敗しました'
-      
-      if (error.response?.data?.detail) {
-        const detail = error.response.data.detail
-        if (detail.includes('not found on Semantic Scholar')) {
-          errorMessage = 'Semantic Scholarでこの論文が見つかりませんでした。タイトルやDOIを確認してください。'
-        } else if (detail.includes('no references available')) {
-          errorMessage = 'この論文の参考文献が見つかりませんでした。'
-        } else {
-          errorMessage = detail
-        }
-      }
-      
+      console.error('Citation extraction error:', error);
+      const errorMessage = error.message || '引用抽出に失敗しました'
       toast.error('引用抽出エラー', errorMessage)
     }
   })
 
   const generateSummaryMutation = useMutation({
     mutationFn: () => papersApi.generateSummary(paperId),
-    onSuccess: () => {
-      toast.success('要約生成完了', '論文の要約を生成しました')
-      queryClient.invalidateQueries({ queryKey: ['paper', paperId] })
+    onSuccess: (response) => {
+      toast.success('要約生成開始', response.message)
+      setSummaryJobId(response.job_id)
+      setSummaryJobStatus({
+        status: response.status,
+        progress: 0,
+        progress_message: "要約生成を開始中..."
+      })
+      // Start polling for job status
+      startJobPolling(response.job_id)
     },
     onError: (error: any) => {
-      let errorMessage = '要約の生成に失敗しました'
+      let errorMessage = '要約の生成開始に失敗しました'
       
       if (error.response?.data?.detail) {
         const detail = error.response.data.detail
@@ -99,18 +121,64 @@ export default function PaperDetail() {
           errorMessage = 'LLM APIキーが設定されていません'
         } else if (detail.includes('rate limit')) {
           errorMessage = 'API利用制限に達しました。しばらくしてから再試行してください'
-        } else if (detail.includes('quota')) {
-          errorMessage = 'API利用クォータを超過しました'
-        } else if (detail.includes('configured')) {
-          errorMessage = 'LLM設定に問題があります。APIキーを確認してください'
         } else {
           errorMessage = detail
         }
       }
       
       toast.error('要約生成エラー', errorMessage)
+      setSummaryJobId(null)
+      setSummaryJobStatus(null)
     }
   })
+
+  // Job polling functionality
+  const startJobPolling = React.useCallback((jobId: string) => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const jobStatus = await papersApi.getJobStatus(jobId)
+        setSummaryJobStatus({
+          status: jobStatus.status,
+          progress: jobStatus.progress,
+          progress_message: jobStatus.progress_message,
+          error_message: jobStatus.error_message
+        })
+        
+        if (jobStatus.status === 'completed') {
+          clearInterval(pollInterval)
+          setSummaryJobId(null)
+          setSummaryJobStatus(null)
+          toast.success('要約生成完了', '論文の要約を生成しました')
+          queryClient.invalidateQueries({ queryKey: ['paper', paperId] })
+        } else if (jobStatus.status === 'failed') {
+          clearInterval(pollInterval)
+          setSummaryJobId(null)
+          setSummaryJobStatus(null)
+          toast.error('要約生成エラー', jobStatus.error_message || '要約の生成に失敗しました')
+        }
+      } catch (error) {
+        console.error('Job polling error:', error)
+      }
+    }, 2000) // Poll every 2 seconds
+    
+    // Cleanup after 10 minutes
+    setTimeout(() => {
+      clearInterval(pollInterval)
+      if (summaryJobId === jobId) {
+        setSummaryJobId(null)
+        setSummaryJobStatus(null)
+        toast.error('要約生成タイムアウト', '要約生成が完了しませんでした')
+      }
+    }, 600000) // 10 minutes
+  }, [summaryJobId, queryClient, paperId])
+
+  // Clean up polling on unmount
+  React.useEffect(() => {
+    return () => {
+      setSummaryJobId(null)
+      setSummaryJobStatus(null)
+    }
+  }, [])
 
   const deletePaperMutation = useMutation({
     mutationFn: () => papersApi.delete(paperId),
@@ -337,21 +405,62 @@ export default function PaperDetail() {
                       <h3 className="text-sm font-medium text-gray-900">AI要約</h3>
                       <button
                         onClick={() => generateSummaryMutation.mutate()}
-                        disabled={generateSummaryMutation.isPending}
+                        disabled={generateSummaryMutation.isPending || !!summaryJobId}
                         className="btn btn-outline btn-sm"
                       >
-                        <Sparkles className="w-4 h-4 mr-1" />
-                        {generateSummaryMutation.isPending ? '生成中...' : (paper.summary ? '再生成' : '生成')}
+                        {generateSummaryMutation.isPending || summaryJobId ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-600 mr-1"></div>
+                            生成中...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-4 h-4 mr-1" />
+                            {paper.summary ? '再生成' : '生成'}
+                          </>
+                        )}
                       </button>
                     </div>
-                    {paper.summary ? (
-                      <div className="text-sm">
-                        <MarkdownRenderer>{paper.summary}</MarkdownRenderer>
+                    
+                    {summaryJobStatus && (
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                        <div className="flex items-center mb-2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
+                          <span className="text-sm font-medium text-blue-800">
+                            {summaryJobStatus.progress_message || '要約を生成しています...'}
+                          </span>
+                        </div>
+                        <div className="w-full bg-blue-200 rounded-full h-2 mb-2">
+                          <div 
+                            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                            style={{ width: `${summaryJobStatus.progress || 0}%` }}
+                          ></div>
+                        </div>
+                        <div className="flex justify-between text-xs text-blue-600">
+                          <span>進行状況: {summaryJobStatus.progress || 0}%</span>
+                          <span>ステータス: {summaryJobStatus.status}</span>
+                        </div>
+                        {summaryJobStatus.error_message && (
+                          <p className="text-xs text-red-600 mt-2">
+                            エラー: {summaryJobStatus.error_message}
+                          </p>
+                        )}
+                        <p className="text-xs text-blue-600 mt-2">
+                          論文の長さやLLMサービスの応答時間により、数分かかる場合があります。ページを閉じても処理は継続されます。
+                        </p>
                       </div>
-                    ) : (
-                      <p className="text-sm text-gray-500 italic">
-                        要約はまだ生成されていません
-                      </p>
+                    )}
+                    
+                    {!summaryJobStatus && (
+                      paper.summary ? (
+                        <div className="text-sm">
+                          <MarkdownRenderer>{paper.summary}</MarkdownRenderer>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-500 italic">
+                          要約はまだ生成されていません
+                        </p>
+                      )
                     )}
                   </div>
 
@@ -438,16 +547,21 @@ export default function PaperDetail() {
               {activeTab === 'citations' && (
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-medium text-gray-900">引用情報</h3>
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-900">引用情報</h3>
+                      <p className="text-xs text-gray-500 mt-1">
+                        PDF本文、OpenAlex、Crossref、Semantic Scholarから統合抽出
+                      </p>
+                    </div>
                     <button 
                       onClick={() => extractCitationsMutation.mutate()}
                       disabled={extractCitationsMutation.isPending}
-                      className="btn btn-outline btn-sm"
+                      className="btn btn-primary btn-sm"
                     >
                       {extractCitationsMutation.isPending ? (
                         <>
-                          <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-gray-600 mr-2"></div>
-                          抽出中...
+                          <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-2"></div>
+                          統合抽出中...
                         </>
                       ) : (
                         '引用を抽出'
@@ -469,15 +583,31 @@ export default function PaperDetail() {
                       <div className="space-y-2 max-h-48 overflow-y-auto">
                         {references.slice(0, 10).map((citation, index) => (
                           <div key={citation.id || index} className="p-3 bg-blue-50 border-l-4 border-blue-500 rounded text-xs">
-                            <div className="font-medium text-gray-900">{citation.cited_title}</div>
-                            {citation.cited_authors && citation.cited_authors.length > 0 && (
-                              <div className="text-gray-600 mt-1">
-                                {citation.cited_authors.join(', ')}
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <div className="font-medium text-gray-900">{citation.cited_title}</div>
+                                {citation.cited_authors && citation.cited_authors.length > 0 && (
+                                  <div className="text-gray-600 mt-1">
+                                    {citation.cited_authors.join(', ')}
+                                  </div>
+                                )}
+                                {citation.cited_year && (
+                                  <div className="text-gray-500 mt-1">{citation.cited_year}</div>
+                                )}
                               </div>
-                            )}
-                            {citation.cited_year && (
-                              <div className="text-gray-500 mt-1">{citation.cited_year}</div>
-                            )}
+                              {citation.extraction_source && (
+                                <div className="ml-2 flex-shrink-0">
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
+                                    {citation.extraction_source}
+                                  </span>
+                                  {citation.confidence_score && (
+                                    <div className="text-xs text-gray-500 mt-1">
+                                      信頼度: {Math.round(citation.confidence_score * 100)}%
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         ))}
                         {references.length > 10 && (

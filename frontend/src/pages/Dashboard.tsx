@@ -78,7 +78,7 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="p-6">
+    <div className="p-2">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -285,8 +285,8 @@ export default function Dashboard() {
         <>
           <div className={
             viewMode === 'grid'
-              ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6'
-              : 'space-y-4'
+              ? 'grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4'
+              : 'space-y-3'
           }>
             {papers.map((paper) => (
               <PaperCard key={paper.id} paper={paper} viewMode={viewMode} />
@@ -530,21 +530,21 @@ function PaperCard({ paper, viewMode }: PaperCardProps) {
         )}
       </div>
 
-      <div className="p-5">
+      <div className="p-3">
         <Link
           to={`/papers/${paper.id}`}
-          className="block text-sm font-semibold text-gray-900 hover:text-primary-600 line-clamp-2 mb-2"
+          className="block text-xs font-semibold text-gray-900 hover:text-primary-600 line-clamp-2 mb-2"
         >
           {paper.title}
         </Link>
 
-        <div className="text-xs text-gray-600 mb-2">
-          {paper.authors?.slice(0, 2).join(', ') || '著者不明'}
-          {paper.authors && paper.authors.length > 2 && ` +${paper.authors.length - 2}`}
+        <div className="text-xs text-gray-600 mb-1">
+          {paper.authors?.slice(0, 1).join(', ') || '著者不明'}
+          {paper.authors && paper.authors.length > 1 && ` +${paper.authors.length - 1}`}
         </div>
 
         {paper.year && (
-          <div className="text-xs text-gray-500 mb-3">{paper.year}</div>
+          <div className="text-xs text-gray-500 mb-2">{paper.year}</div>
         )}
 
         {/* Citation Information */}
@@ -552,11 +552,11 @@ function PaperCard({ paper, viewMode }: PaperCardProps) {
 
         {/* Tags */}
         {paper.tags && paper.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-3">
-            {paper.tags.slice(0, 2).map((tag) => (
+          <div className="flex flex-wrap gap-1 mb-2">
+            {paper.tags.slice(0, 1).map((tag) => (
               <span
                 key={tag.id}
-                className="inline-flex items-center px-2 py-1 rounded-full text-xs"
+                className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs"
                 style={{
                   backgroundColor: tag.color + '20',
                   color: tag.color
@@ -565,8 +565,8 @@ function PaperCard({ paper, viewMode }: PaperCardProps) {
                 {tag.name}
               </span>
             ))}
-            {paper.tags.length > 2 && (
-              <span className="text-xs text-gray-500">+{paper.tags.length - 2}</span>
+            {paper.tags.length > 1 && (
+              <span className="text-xs text-gray-500">+{paper.tags.length - 1}</span>
             )}
           </div>
         )}
@@ -574,8 +574,8 @@ function PaperCard({ paper, viewMode }: PaperCardProps) {
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
             {paper.summary && (
-              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">
-                要約済み
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs bg-green-100 text-green-800">
+                要約
               </span>
             )}
           </div>

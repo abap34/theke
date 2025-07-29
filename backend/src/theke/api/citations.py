@@ -60,7 +60,6 @@ async def extract_citations(
     paper_id: int,
     direction: str = "both",  # "references", "citations", "both"
     method: str = "comprehensive",  # "comprehensive", "openalex", "crossref", "semantic_scholar", "pdf_only"
-    confidence_threshold: float = 0.6,
     db: Session = Depends(get_db),
 ):
     """引用抽出 - 双方向サポート"""
@@ -80,33 +79,31 @@ async def extract_citations(
                 paper_id=paper_id,
                 paper_title=paper.title,
                 paper_doi=paper.doi,
+                pdf_path=paper.pdf_path,
                 direction=direction,
             )
 
             # 既存の引用データをクリア
             citation_crud.delete_citations_by_paper(db=db, paper_id=paper_id)
 
-            # 参照文献（この論文が引用している論文）
+            # 参照文献（この論文が引用している論文）- 信頼度フィルタリングなし（純粋なunion）
             if direction in ["both", "references"]:
                 for relation in relations.get("references", []):
-                    if relation.confidence >= confidence_threshold:
-                        citation_create = citation_schema.CitationCreate(
-                            citing_paper_id=paper_id,
-                            cited_title=relation.related_paper_title,
-                            cited_authors=relation.related_paper_authors,
-                            cited_year=relation.related_paper_year,
-                            cited_journal=relation.related_paper_journal,
-                            cited_doi=relation.related_paper_doi,
-                            extraction_source=relation.source,
-                            confidence_score=relation.confidence,
-                            status=(
-                                "verified" if relation.confidence > 0.8 else "pending"
-                            ),
-                        )
-                        saved_citation = citation_crud.create_citation(
-                            db=db, citation=citation_create
-                        )
-                        saved_citations.append(saved_citation)
+                    citation_create = citation_schema.CitationCreate(
+                        citing_paper_id=paper_id,
+                        cited_title=relation.related_paper_title,
+                        cited_authors=relation.related_paper_authors,
+                        cited_year=relation.related_paper_year,
+                        cited_journal=relation.related_paper_journal,
+                        cited_doi=relation.related_paper_doi,
+                        extraction_source=relation.source,
+                        confidence_score=relation.confidence,
+                        status="verified",  # すべてを検証済みとして扱う
+                    )
+                    saved_citation = citation_crud.create_citation(
+                        db=db, citation=citation_create
+                    )
+                    saved_citations.append(saved_citation)
 
             # 引用元文献（この論文を引用している論文）- 別途保存ロジックが必要
             citing_papers_count = len(relations.get("citing_papers", []))
