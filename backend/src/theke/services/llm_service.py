@@ -103,15 +103,22 @@ class AnthropicProvider(LLMProvider):
             prompt = get_setting_value(db_session, "summary_prompt", default=settings.SUMMARY_PROMPT)
         else:
             prompt = settings.SUMMARY_PROMPT
-        
+
+        # Get model from database setting or use default
+        if db_session:
+            from ..crud.setting import get_setting_value
+            model = get_setting_value(db_session, "anthropic_model", default=settings.ANTHROPIC_MODEL)
+        else:
+            model = settings.ANTHROPIC_MODEL
+
         try:
             message = await self.client.messages.create(
-                model=settings.ANTHROPIC_MODEL,
+                model=model,
                 max_tokens=1500,
                 temperature=0.3,
                 messages=[
                     {
-                        "role": "user", 
+                        "role": "user",
                         "content": f"{prompt}\n\n以下の論文を要約してください:\n{text[:100000]}"  # Claude can handle more text
                     }
                 ]
@@ -129,16 +136,23 @@ class AnthropicProvider(LLMProvider):
             prompt = get_setting_value(db_session, "summary_prompt", default=settings.SUMMARY_PROMPT)
         else:
             prompt = settings.SUMMARY_PROMPT
-        
+
+        # Get model from database setting or use default
+        if db_session:
+            from ..crud.setting import get_setting_value
+            model = get_setting_value(db_session, "anthropic_model", default=settings.ANTHROPIC_MODEL)
+        else:
+            model = settings.ANTHROPIC_MODEL
+
         try:
             import base64
-            
+
             # Read PDF file and encode as base64
             with open(pdf_path, 'rb') as f:
                 pdf_data = base64.b64encode(f.read()).decode('utf-8')
-            
+
             message = await self.client.messages.create(
-                model=settings.ANTHROPIC_MODEL,
+                model=model,
                 max_tokens=2000,
                 temperature=0.3,
                 messages=[
@@ -165,14 +179,21 @@ class AnthropicProvider(LLMProvider):
         except Exception as e:
             raise Exception(f"Anthropic PDF summary generation error: {str(e)}")
     
-    async def extract_citations(self, text: str) -> list[Dict[str, Any]]:
-        prompt = """Extract all citations from this academic paper text. 
+    async def extract_citations(self, text: str, db_session: Optional[object] = None) -> list[Dict[str, Any]]:
+        prompt = """Extract all citations from this academic paper text.
         Return them as a JSON list where each citation has: title, authors (list), year, journal, doi (if available).
         Only return the JSON array, no other text."""
-        
+
+        # Get model from database setting or use default
+        if db_session:
+            from ..crud.setting import get_setting_value
+            model = get_setting_value(db_session, "anthropic_model", default=settings.ANTHROPIC_MODEL)
+        else:
+            model = settings.ANTHROPIC_MODEL
+
         try:
             message = await self.client.messages.create(
-                model=settings.ANTHROPIC_MODEL,
+                model=model,
                 max_tokens=2000,
                 temperature=0.1,
                 messages=[
@@ -182,7 +203,7 @@ class AnthropicProvider(LLMProvider):
                     }
                 ]
             )
-            
+
             import json
             result = message.content[0].text.strip()
             # Try to parse as JSON
@@ -191,11 +212,11 @@ class AnthropicProvider(LLMProvider):
                 return citations if isinstance(citations, list) else []
             except json.JSONDecodeError:
                 return []
-                
+
         except Exception as e:
             raise Exception(f"Anthropic citation extraction error: {str(e)}")
     
-    async def extract_citations_from_pdf(self, pdf_path: str) -> list[Dict[str, Any]]:
+    async def extract_citations_from_pdf(self, pdf_path: str, db_session: Optional[object] = None) -> list[Dict[str, Any]]:
         """Extract citations directly from PDF using Anthropic's native PDF support"""
         prompt = """この学術論文PDFから、すべての引用文献を抽出してください。
 
@@ -216,16 +237,23 @@ class AnthropicProvider(LLMProvider):
 - 本文中の[1], (Smith, 2020)なども分析
 - タイトル、著者、年、ジャーナル、DOI（あれば）を含める
 - JSONのみを返し、その他のテキストは含めない"""
-        
+
+        # Get model from database setting or use default
+        if db_session:
+            from ..crud.setting import get_setting_value
+            model = get_setting_value(db_session, "anthropic_model", default=settings.ANTHROPIC_MODEL)
+        else:
+            model = settings.ANTHROPIC_MODEL
+
         try:
             import base64
-            
+
             # Read PDF file and encode as base64
             with open(pdf_path, 'rb') as f:
                 pdf_data = base64.b64encode(f.read()).decode('utf-8')
-            
+
             message = await self.client.messages.create(
-                model=settings.ANTHROPIC_MODEL,
+                model=model,
                 max_tokens=3000,
                 temperature=0.1,
                 messages=[
@@ -248,17 +276,17 @@ class AnthropicProvider(LLMProvider):
                     }
                 ]
             )
-            
+
             import json
             result = message.content[0].text.strip()
-            
+
             # Remove markdown code blocks if present
             if result.startswith('```'):
                 lines = result.split('\n')
                 result = '\n'.join(lines[1:-1])  # Remove first and last line
             if result.startswith('json'):
                 result = result[4:].strip()
-            
+
             try:
                 citations = json.loads(result)
                 return citations if isinstance(citations, list) else []
@@ -266,7 +294,7 @@ class AnthropicProvider(LLMProvider):
                 print(f"JSON parsing error: {e}")
                 print(f"Raw result: {result}")
                 return []
-                
+
         except Exception as e:
             raise Exception(f"Anthropic PDF citation extraction error: {str(e)}")
 
@@ -328,28 +356,28 @@ async def generate_summary(paper, custom_prompt: Optional[str] = None, db_sessio
     return await provider.generate_summary(text, custom_prompt=custom_prompt, db_session=db_session)
 
 
-async def extract_citations_from_paper(paper) -> list[Dict[str, Any]]:
+async def extract_citations_from_paper(paper, db_session: Optional[object] = None) -> list[Dict[str, Any]]:
     """Extract citations from a paper using the configured LLM provider"""
     provider = get_llm_provider()
-    
+
     # If using Anthropic and PDF exists, use direct PDF extraction
     if isinstance(provider, AnthropicProvider) and paper.pdf_path:
         try:
             import os
             if os.path.exists(paper.pdf_path):
-                return await provider.extract_citations_from_pdf(paper.pdf_path)
+                return await provider.extract_citations_from_pdf(paper.pdf_path, db_session=db_session)
         except Exception as e:
             print(f"PDF extraction failed, falling back to text extraction: {e}")
-    
+
     # Fallback to text-based extraction
     text_parts = []
-    
+
     # Add basic paper information
     if paper.title:
         text_parts.append(f"Title: {paper.title}")
     if paper.abstract:
         text_parts.append(f"Abstract: {paper.abstract}")
-    
+
     # Extract text from PDF if available
     if paper.pdf_path:
         try:
@@ -359,9 +387,9 @@ async def extract_citations_from_paper(paper) -> list[Dict[str, Any]]:
                 text_parts.append(f"Full text:\n{pdf_text}")
         except Exception as e:
             print(f"Warning: Could not extract text from PDF {paper.pdf_path}: {e}")
-    
+
     text = "\n\n".join(text_parts)
     if not text.strip():
         raise ValueError("No text content available for citation extraction")
-    
-    return await provider.extract_citations(text)
+
+    return await provider.extract_citations(text, db_session=db_session)

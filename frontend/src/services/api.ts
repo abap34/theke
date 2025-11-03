@@ -297,6 +297,15 @@ export const settingsApi = {
 
   updateSummaryPrompt: async (prompt: string): Promise<void> => {
     await api.put('/api/settings/summary-prompt', { prompt })
+  },
+
+  getModelSetting: async (): Promise<{model: string}> => {
+    const response = await api.get('/api/settings/model')
+    return response.data
+  },
+
+  updateModelSetting: async (model: string): Promise<void> => {
+    await api.put('/api/settings/model', { model })
   }
 }
 

@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 
 class SettingBase(BaseModel):
@@ -31,3 +31,21 @@ class SummaryPromptResponse(BaseModel):
 
 class SummaryPromptUpdate(BaseModel):
     prompt: str
+
+
+class ModelInfo(BaseModel):
+    id: str
+    name: str
+    description: str
+
+
+class AvailableModelsResponse(BaseModel):
+    models: List[Dict[str, Any]]
+
+
+class ModelSettingResponse(BaseModel):
+    model: str
+
+
+class ModelSettingUpdate(BaseModel):
+    model: str

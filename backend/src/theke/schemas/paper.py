@@ -30,8 +30,8 @@ class PaperBase(BaseModel):
         Field(max_length=5000, description="Paper abstract")
     ] = None
     summary: Annotated[
-        Optional[str], 
-        Field(max_length=2000, description="AI-generated summary")
+        Optional[str],
+        Field(max_length=10000, description="AI-generated summary")
     ] = None
     notes: Annotated[
         Optional[str], 
