@@ -3,3 +3,5 @@
 *.db
 /backend/uploads
 /backend/thumbnails
+.claude/settings.local.json
+*.pyc
