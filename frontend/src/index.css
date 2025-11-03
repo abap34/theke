@@ -86,8 +86,16 @@
   @apply bg-gray-900 text-gray-100;
 }
 
+.dark body {
+  @apply bg-gray-900 text-gray-100;
+}
+
 .dark .card {
   @apply bg-gray-800 border-gray-700;
+}
+
+.dark .card-hover {
+  @apply hover:border-gray-600;
 }
 
 .dark .input {
@@ -95,5 +103,39 @@
 }
 
 .dark .label {
+  @apply text-gray-300;
+}
+
+.dark .btn-outline {
+  @apply border-gray-600 bg-gray-800 text-gray-300 hover:bg-gray-700;
+}
+
+.dark .btn-primary {
+  @apply bg-primary-600 text-white hover:bg-primary-700;
+}
+
+.dark .btn-secondary {
+  @apply bg-secondary-600 text-white hover:bg-secondary-700;
+}
+
+/* Dark mode scrollbar */
+.dark ::-webkit-scrollbar-track {
+  background: #374151;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #6b7280;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Additional dark mode styles */
+.dark h1, .dark h2, .dark h3, .dark h4, .dark h5, .dark h6 {
+  @apply text-gray-100;
+}
+
+.dark p {
   @apply text-gray-300;
 }

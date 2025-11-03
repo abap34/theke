@@ -168,10 +168,6 @@ export const citationsApi = {
     return response.data
   },
 
-  getNetwork: async (): Promise<{ nodes: any[], edges: any[] }> => {
-    const response = await api.get('/api/citations/network')
-    return response.data
-  },
 
   formatCitation: async (paperId: number, style: string): Promise<string> => {
     const response = await api.get(`/api/citations/format/${style}`, {
@@ -237,10 +233,62 @@ export const externalApi = {
   addFromExternal: async (externalPaper: ExternalPaper): Promise<Paper> => {
     const response = await api.post('/api/citations/add-from-external', externalPaper)
     return response.data
+  },
+
+  searchAll: async (query: string, limit: number = 10, sources: string[] = ['arxiv', 'crossref', 'semantic_scholar']): Promise<ExternalPaper[]> => {
+    const response = await api.get('/api/external/search-all', {
+      params: { 
+        query,
+        limit,
+        sources: sources.join(',')
+      }
+    })
+    return response.data
   }
 }
 
 // Settings API
+// Recommendation API
+export const recommendationApi = {
+  getRelatedPapers: async (paperId: number, limit: number = 10): Promise<Paper[]> => {
+    const response = await api.get(`/api/recommendations/related/${paperId}`, {
+      params: { limit }
+    })
+    return response.data
+  },
+
+  getSimilarByAuthor: async (paperId: number, limit: number = 5): Promise<Paper[]> => {
+    const response = await api.get(`/api/recommendations/by-author/${paperId}`, {
+      params: { limit }
+    })
+    return response.data
+  },
+
+  getSimilarByTags: async (paperId: number, limit: number = 5): Promise<Paper[]> => {
+    const response = await api.get(`/api/recommendations/by-tags/${paperId}`, {
+      params: { limit }
+    })
+    return response.data
+  }
+}
+
+// Auto-tagging API
+export const autoTagApi = {
+  suggestTags: async (paperId: number): Promise<{suggested_tags: string[], confidence: number}[]> => {
+    const response = await api.post(`/api/auto-tags/suggest/${paperId}`)
+    return response.data
+  },
+
+  applyAutoTags: async (paperId: number, tags: string[]): Promise<void> => {
+    await api.post(`/api/auto-tags/apply/${paperId}`, { tags })
+  },
+
+  getPresetTags: async (): Promise<{cs_topics: string[], ml_topics: string[], general: string[]}> => {
+    const response = await api.get('/api/auto-tags/presets')
+    return response.data
+  }
+}
+
 export const settingsApi = {
   getSummaryPrompt: async (): Promise<{prompt: string}> => {
     const response = await api.get('/api/settings/summary-prompt')

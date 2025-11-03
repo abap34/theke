@@ -26,6 +26,7 @@ class ExtractedCitation:
     source: str = "unknown"
     context: Optional[str] = None
     page_number: Optional[int] = None
+    confidence: float = 0.0
 
 
 class EnhancedCitationExtractor:
@@ -222,7 +223,7 @@ class EnhancedCitationExtractor:
             matches = re.finditer(pattern, text, re.MULTILINE)
 
             for match in matches:
-                citation = ExtractedCitation(source="pdf_text")
+                citation = ExtractedCitation(source="pdf_extraction")
 
                 # グループから情報を抽出
                 for field, group_num in groups.items():
@@ -273,7 +274,7 @@ class EnhancedCitationExtractor:
             citation = ExtractedCitation(
                 authors=self._parse_authors(match.group(1)),
                 year=int(match.group(2)),
-                source="pdf_text",
+                source="pdf_extraction",
             )
 
             citation.page_number = self._find_page_number(match.group(0), page_texts)
@@ -527,9 +528,31 @@ class EnhancedCitationExtractor:
                 if not similar_citation.journal and citation.journal:
                     similar_citation.journal = citation.journal
 
-                # ソースを統合
-                if citation.source not in similar_citation.source:
-                    similar_citation.source = f"{similar_citation.source},{citation.source}"
+                # ソースを統合（優先順位に基づいて最良のソースを選択）
+                source_priority = {
+                    "openalex": 5,
+                    "crossref": 4, 
+                    "semantic_scholar": 3,
+                    "pdf_extraction": 2,
+                    "pdf_text": 2,
+                    "llm": 1,
+                    "merged": 6,  # 既に統合済み
+                    "manual": 7,  # 手動入力が最優先
+                    "unknown": 0
+                }
+                
+                current_priority = source_priority.get(similar_citation.source, 0)
+                new_priority = source_priority.get(citation.source, 0)
+                
+                if new_priority > current_priority:
+                    similar_citation.source = citation.source
+                elif current_priority > 0 and new_priority > 0 and current_priority == new_priority:
+                    # 同じ優先度の場合は"merged"にマーク
+                    similar_citation.source = "merged"
+                
+                # 信頼度を統合（より高い方を使用）
+                if citation.confidence > similar_citation.confidence:
+                    similar_citation.confidence = citation.confidence
             else:
                 merged.append(citation)
 

@@ -213,3 +213,13 @@ def remove_tag_from_paper(db: Session, paper_id: int, tag_id: int) -> bool:
         db.commit()
     
     return True
+
+
+def get_papers_count(db: Session) -> int:
+    """Get total count of papers"""
+    return db.query(func.count(Paper.id)).scalar()
+
+
+def get_tagged_papers_count(db: Session) -> int:
+    """Get count of papers that have at least one tag"""
+    return db.query(func.count(Paper.id.distinct())).join(Paper.tags).scalar()

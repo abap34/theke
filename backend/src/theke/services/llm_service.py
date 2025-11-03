@@ -1,20 +1,22 @@
 import asyncio
-from typing import Optional, Dict, Any
-from abc import ABC, abstractmethod
+from typing import Optional, Dict, Any, List
+from sqlalchemy.orm import Session
 
 from ..core.config import settings
+from ..types import LLMServiceProtocol, ServiceError
 
 
-class LLMProvider(ABC):
-    """Abstract base class for LLM providers"""
+class LLMProvider(LLMServiceProtocol):
+    """Base LLM provider implementation"""
     
-    @abstractmethod
-    async def generate_summary(self, text: str, custom_prompt: Optional[str] = None, db_session: Optional[object] = None) -> str:
-        pass
+    async def generate_summary(self, text: str, custom_prompt: Optional[str] = None, db_session: Optional[Session] = None) -> str:
+        raise NotImplementedError
     
-    @abstractmethod
-    async def extract_citations(self, text: str) -> list[Dict[str, Any]]:
-        pass
+    async def extract_metadata(self, text: str) -> Dict[str, Any]:
+        raise NotImplementedError
+    
+    async def extract_citations(self, text: str) -> List[Dict[str, Any]]:
+        raise NotImplementedError
 
 
 class OpenAIProvider(LLMProvider):

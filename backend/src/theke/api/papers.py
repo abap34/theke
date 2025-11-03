@@ -13,6 +13,7 @@ from ..crud import paper as paper_crud, job as job_crud
 from ..services.pdf_processor import extract_metadata_from_pdf
 from ..services.llm_service import generate_summary
 from ..services.thumbnail_generator import thumbnail_generator
+from ..utils.errors import handle_service_errors
 
 router = APIRouter()
 
@@ -26,7 +27,8 @@ class SummaryRequest(BaseModel):
 
 
 @router.get("/settings/summary-prompt", response_model=PromptUpdate)
-def get_summary_prompt():
+@handle_service_errors()
+def get_summary_prompt() -> PromptUpdate:
     """Get the current summary prompt"""
     return PromptUpdate(prompt=settings.SUMMARY_PROMPT)
 
@@ -96,10 +98,11 @@ def get_papers(
 
 
 @router.post("/", response_model=paper_schema.Paper)
+@handle_service_errors()
 def create_paper(
     paper: paper_schema.PaperCreate,
     db: Session = Depends(get_db)
-):
+) -> paper_schema.Paper:
     """Create a new paper"""
     return paper_crud.create_paper(db=db, paper=paper)
 

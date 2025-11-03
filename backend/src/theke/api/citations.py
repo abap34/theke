@@ -12,7 +12,7 @@ from ..services.llm_service import extract_citations_from_paper
 router = APIRouter()
 
 
-@router.get("/", response_model=List[citation_schema.Citation])
+@router.get("/", response_model=List[citation_schema.CitationPublic])
 def get_citations(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     """Get all citations"""
     citations = citation_crud.get_citations(db=db, skip=skip, limit=limit)
@@ -55,7 +55,7 @@ def format_citation_endpoint(style: str, paper_id: int, db: Session = Depends(ge
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/extract/{paper_id}", response_model=List[citation_schema.Citation])
+@router.post("/extract/{paper_id}", response_model=List[citation_schema.CitationPublic])
 async def extract_citations(
     paper_id: int,
     direction: str = "both",  # "references", "citations", "both"
@@ -201,7 +201,7 @@ async def get_citation_network_enhanced(
 
 # 既存のエンドポイントを更新
 @router.post(
-    "/extract/{paper_id}/legacy", response_model=List[citation_schema.Citation]
+    "/extract/{paper_id}/legacy", response_model=List[citation_schema.CitationPublic]
 )
 async def extract_citations_legacy(
     paper_id: int,
@@ -320,16 +320,18 @@ async def extract_citations_legacy(
         saved_citations = []
         for citation_data in extracted_citations:
             # 信頼性スコアに基づいてステータスを決定
-            confidence = citation_data.get("confidence", 0.0)
-            status = "verified" if confidence > 0.8 else "unresolved"
+            confidence = getattr(citation_data, 'confidence', citation_data.get('confidence', 0.0)) if hasattr(citation_data, '__dict__') or isinstance(citation_data, dict) else 0.0
+            status = "verified" if confidence > 0.8 else "pending"
 
             citation_create = citation_schema.CitationCreate(
                 citing_paper_id=paper_id,
-                cited_title=citation_data.get("title"),
-                cited_authors=citation_data.get("authors", []),
-                cited_year=citation_data.get("year"),
-                cited_journal=citation_data.get("journal"),
-                cited_doi=citation_data.get("doi"),
+                cited_title=getattr(citation_data, 'title', citation_data.get('title')) if hasattr(citation_data, '__dict__') or isinstance(citation_data, dict) else None,
+                cited_authors=getattr(citation_data, 'authors', citation_data.get('authors', [])) if hasattr(citation_data, '__dict__') or isinstance(citation_data, dict) else [],
+                cited_year=getattr(citation_data, 'year', citation_data.get('year')) if hasattr(citation_data, '__dict__') or isinstance(citation_data, dict) else None,
+                cited_journal=getattr(citation_data, 'journal', citation_data.get('journal')) if hasattr(citation_data, '__dict__') or isinstance(citation_data, dict) else None,
+                cited_doi=getattr(citation_data, 'doi', citation_data.get('doi')) if hasattr(citation_data, '__dict__') or isinstance(citation_data, dict) else None,
+                extraction_source=getattr(citation_data, 'source', citation_data.get('source', 'unknown')) if hasattr(citation_data, '__dict__') or isinstance(citation_data, dict) else 'unknown',
+                confidence_score=confidence,
                 status=status,
             )
             saved_citation = citation_crud.create_citation(
@@ -350,7 +352,7 @@ async def extract_citations_legacy(
         )
 
 
-@router.get("/{citation_id}", response_model=citation_schema.Citation)
+@router.get("/{citation_id}", response_model=citation_schema.CitationPublic)
 def get_citation(citation_id: int, db: Session = Depends(get_db)):
     """Get a specific citation by ID"""
     citation = citation_crud.get_citation(db=db, citation_id=citation_id)
@@ -359,7 +361,7 @@ def get_citation(citation_id: int, db: Session = Depends(get_db)):
     return citation
 
 
-@router.put("/{citation_id}", response_model=citation_schema.Citation)
+@router.put("/{citation_id}", response_model=citation_schema.CitationPublic)
 def update_citation(
     citation_id: int,
     citation_update: citation_schema.CitationUpdate,
@@ -398,7 +400,7 @@ def resolve_citation(
     return citation
 
 
-@router.get("/paper/{paper_id}", response_model=List[citation_schema.Citation])
+@router.get("/paper/{paper_id}", response_model=List[citation_schema.CitationPublic])
 def get_paper_citations(paper_id: int, db: Session = Depends(get_db)):
     """Get all citations for a specific paper"""
     citations = citation_crud.get_citations_by_paper(db=db, paper_id=paper_id)

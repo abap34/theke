@@ -19,7 +19,7 @@ import {
   ChevronLeft,
   ChevronRight
 } from 'lucide-react'
-import { papersApi, citationsApi } from '@/services/api'
+import { papersApi, citationsApi, recommendationApi } from '@/services/api'
 import { toast } from '@/components/ui/Toaster'
 import { MarkdownRenderer, MarkdownEditor } from '@/components/ui/MarkdownRenderer'
 
@@ -65,27 +65,33 @@ export default function PaperDetail() {
     enabled: !isNaN(paperId),
   })
 
+  // Get related papers recommendations
+  const { data: relatedPapers = [] } = useQuery({
+    queryKey: ['related-papers', paperId],
+    queryFn: () => recommendationApi.getRelatedPapers(paperId, 5),
+    enabled: !isNaN(paperId),
+  })
+
+  const { data: authorPapers = [] } = useQuery({
+    queryKey: ['author-papers', paperId],
+    queryFn: () => recommendationApi.getSimilarByAuthor(paperId, 3),
+    enabled: !isNaN(paperId),
+  })
+
+  const { data: tagPapers = [] } = useQuery({
+    queryKey: ['tag-papers', paperId],
+    queryFn: () => recommendationApi.getSimilarByTags(paperId, 3),
+    enabled: !isNaN(paperId),
+  })
+
   const extractCitationsMutation = useMutation({
     mutationFn: () => citationsApi.extractFromPaper(paperId),
     onSuccess: (extractedCitations) => {
       console.log('Extracted citations:', extractedCitations);
       
-      // Count sources if available
-      const sourceCounts: Record<string, number> = {};
-      extractedCitations.forEach(citation => {
-        const source = citation.extraction_source || 'comprehensive';
-        sourceCounts[source] = (sourceCounts[source] || 0) + 1;
-      });
-      
-      const sourceInfo = Object.keys(sourceCounts).length > 0 
-        ? '\n' + Object.entries(sourceCounts)
-            .map(([source, count]) => `${source}: ${count}件`)
-            .join(', ')
-        : '';
-      
       toast.success(
-        '統合引用抽出完了', 
-        `合計${extractedCitations.length}件の引用を抽出しました（全ソース統合）${sourceInfo}`
+        '引用抽出完了', 
+        `${extractedCitations.length}件の引用を抽出しました`
       );
       
       queryClient.invalidateQueries({ queryKey: ['paper-references', paperId] })
@@ -226,9 +232,9 @@ export default function PaperDetail() {
     return (
       <div className="p-6">
         <div className="text-center py-12">
-          <FileText className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">論文が見つかりません</h3>
-          <Link to="/" className="text-primary-600 hover:text-primary-700">
+          <FileText className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500 mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">論文が見つかりません</h3>
+          <Link to="/" className="text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300">
             ダッシュボードに戻る
           </Link>
         </div>
@@ -240,11 +246,11 @@ export default function PaperDetail() {
     <div className="flex h-screen">
       {/* PDF Panel - Left side, much larger */}
       {showPdfPanel && (
-        <div className="w-[60%] h-screen bg-white border-r border-gray-200 shadow-lg flex flex-col">
+        <div className="w-[60%] h-screen bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 shadow-lg flex flex-col">
           <div className="flex-1">
             {paper.pdf_path ? (
               <div className="space-y-4 h-full p-6">
-                <div className="h-full bg-gray-100 rounded-lg overflow-hidden">
+                <div className="h-full bg-gray-100 dark:bg-gray-700 rounded-lg overflow-hidden">
                   <iframe
                     src={`http://localhost:8000/${paper.pdf_path}`}
                     className="w-full h-full border-0"
@@ -264,10 +270,10 @@ export default function PaperDetail() {
                 </div>
               </div>
             ) : (
-              <div className="h-full bg-gray-50 rounded-lg flex items-center justify-center m-6">
+              <div className="h-full bg-gray-50 dark:bg-gray-700 rounded-lg flex items-center justify-center m-6">
                 <div className="text-center">
-                  <FileText className="mx-auto h-16 w-16 text-gray-400 mb-4" />
-                  <p className="text-gray-600">PDFファイルが見つかりません</p>
+                  <FileText className="mx-auto h-16 w-16 text-gray-400 dark:text-gray-500 mb-4" />
+                  <p className="text-gray-600 dark:text-gray-300">PDFファイルが見つかりません</p>
                 </div>
               </div>
             )}
@@ -283,15 +289,15 @@ export default function PaperDetail() {
             <div className="flex items-center space-x-4">
               <Link 
                 to="/"
-                className="p-2 rounded-md hover:bg-gray-100"
+                className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
               >
                 <ArrowLeft className="w-5 h-5" />
               </Link>
               <div>
-                <h1 className="text-2xl font-bold text-gray-900 line-clamp-2">
+                <h1 className="text-2xl font-bold text-gray-900 dark:text-white line-clamp-2">
                   {paper.title}
                 </h1>
-                <div className="flex items-center space-x-4 mt-2 text-sm text-gray-600">
+                <div className="flex items-center space-x-4 mt-2 text-sm text-gray-600 dark:text-gray-300">
                   <div className="flex items-center">
                     <Users className="w-4 h-4 mr-1" />
                     {paper.authors.join(', ')}
@@ -315,7 +321,7 @@ export default function PaperDetail() {
             <div className="flex items-center space-x-2">
               <button
                 onClick={() => setShowPdfPanel(!showPdfPanel)}
-                className="p-2 rounded-md hover:bg-gray-100"
+                className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
                 title={showPdfPanel ? "PDFを隠す" : "PDFを表示"}
               >
                 {showPdfPanel ? (
@@ -362,7 +368,7 @@ export default function PaperDetail() {
             <div className="space-y-6">
               {/* Tab Navigation */}
               <div className="card">
-                <div className="border-b border-gray-200">
+                <div className="border-b border-gray-200 dark:border-gray-700">
                   <nav className="flex space-x-8 px-6 py-4">
                     {[
                       { id: 'overview', label: '概要', icon: FileText },
@@ -375,8 +381,8 @@ export default function PaperDetail() {
                         onClick={() => setActiveTab(tab.id as any)}
                         className={`flex items-center space-x-2 text-sm font-medium pb-2 border-b-2 ${
                           activeTab === tab.id
-                            ? 'border-primary-600 text-primary-600'
-                            : 'border-transparent text-gray-500 hover:text-gray-700'
+                            ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+                            : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
                         }`}
                       >
                         <tab.icon className="w-4 h-4" />
@@ -392,8 +398,8 @@ export default function PaperDetail() {
                   {/* Abstract */}
                   {paper.abstract && (
                     <div>
-                      <h3 className="text-sm font-medium text-gray-900 mb-2">アブストラクト</h3>
-                      <p className="text-sm text-gray-700 leading-relaxed">
+                      <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-2">アブストラクト</h3>
+                      <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
                         {paper.abstract}
                       </p>
                     </div>
@@ -402,7 +408,7 @@ export default function PaperDetail() {
                   {/* Summary */}
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-sm font-medium text-gray-900">AI要約</h3>
+                      <h3 className="text-sm font-medium text-gray-900 dark:text-white">AI要約</h3>
                       <button
                         onClick={() => generateSummaryMutation.mutate()}
                         disabled={generateSummaryMutation.isPending || !!summaryJobId}
@@ -423,29 +429,29 @@ export default function PaperDetail() {
                     </div>
                     
                     {summaryJobStatus && (
-                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
                         <div className="flex items-center mb-2">
                           <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
-                          <span className="text-sm font-medium text-blue-800">
+                          <span className="text-sm font-medium text-blue-800 dark:text-blue-200">
                             {summaryJobStatus.progress_message || '要約を生成しています...'}
                           </span>
                         </div>
-                        <div className="w-full bg-blue-200 rounded-full h-2 mb-2">
+                        <div className="w-full bg-blue-200 dark:bg-blue-800 rounded-full h-2 mb-2">
                           <div 
                             className="bg-blue-600 h-2 rounded-full transition-all duration-300"
                             style={{ width: `${summaryJobStatus.progress || 0}%` }}
                           ></div>
                         </div>
-                        <div className="flex justify-between text-xs text-blue-600">
+                        <div className="flex justify-between text-xs text-blue-600 dark:text-blue-400">
                           <span>進行状況: {summaryJobStatus.progress || 0}%</span>
                           <span>ステータス: {summaryJobStatus.status}</span>
                         </div>
                         {summaryJobStatus.error_message && (
-                          <p className="text-xs text-red-600 mt-2">
+                          <p className="text-xs text-red-600 dark:text-red-400 mt-2">
                             エラー: {summaryJobStatus.error_message}
                           </p>
                         )}
-                        <p className="text-xs text-blue-600 mt-2">
+                        <p className="text-xs text-blue-600 dark:text-blue-400 mt-2">
                           論文の長さやLLMサービスの応答時間により、数分かかる場合があります。ページを閉じても処理は継続されます。
                         </p>
                       </div>
@@ -457,7 +463,7 @@ export default function PaperDetail() {
                           <MarkdownRenderer>{paper.summary}</MarkdownRenderer>
                         </div>
                       ) : (
-                        <p className="text-sm text-gray-500 italic">
+                        <p className="text-sm text-gray-500 dark:text-gray-400 italic">
                           要約はまだ生成されていません
                         </p>
                       )
@@ -467,12 +473,12 @@ export default function PaperDetail() {
                   {/* DOI */}
                   {paper.doi && (
                     <div>
-                      <h3 className="text-sm font-medium text-gray-900 mb-2">DOI</h3>
+                      <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-2">DOI</h3>
                       <a 
                         href={`https://doi.org/${paper.doi}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-sm text-primary-600 hover:text-primary-700 flex items-center"
+                        className="text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300 flex items-center"
                       >
                         {paper.doi}
                         <ExternalLink className="w-3 h-3 ml-1" />
@@ -516,7 +522,7 @@ export default function PaperDetail() {
                     <div>
                       {paper.notes ? (
                         <div className="space-y-3">
-                          <div className="bg-gray-50 rounded-md p-4">
+                          <div className="bg-gray-50 dark:bg-gray-800 rounded-md p-4">
                             <MarkdownRenderer>{paper.notes}</MarkdownRenderer>
                           </div>
                           <button 
@@ -529,7 +535,7 @@ export default function PaperDetail() {
                         </div>
                       ) : (
                         <div className="text-center py-8">
-                          <p className="text-gray-500 mb-4">メモはまだ追加されていません</p>
+                          <p className="text-gray-500 dark:text-gray-400 mb-4">メモはまだ追加されていません</p>
                           <button 
                             onClick={() => setIsEditingNotes(true)}
                             className="btn btn-primary btn-sm"
@@ -548,8 +554,8 @@ export default function PaperDetail() {
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-sm font-medium text-gray-900">引用情報</h3>
-                      <p className="text-xs text-gray-500 mt-1">
+                      <h3 className="text-sm font-medium text-gray-900 dark:text-white">引用情報</h3>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                         PDF本文、OpenAlex、Crossref、Semantic Scholarから統合抽出
                       </p>
                     </div>
@@ -571,78 +577,60 @@ export default function PaperDetail() {
                   
                   {/* References: Papers this paper cites */}
                   <div>
-                    <h4 className="text-sm font-medium text-gray-900 mb-3 flex items-center">
+                    <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-3 flex items-center">
                       <span className="w-2 h-2 bg-blue-500 rounded-full mr-2"></span>
                       この論文が引用している論文 ({references.length}件)
                     </h4>
                     {references.length === 0 ? (
-                      <p className="text-sm text-gray-500 ml-4">
+                      <p className="text-sm text-gray-500 dark:text-gray-400 ml-4">
                         引用している論文はまだ抽出されていません
                       </p>
                     ) : (
-                      <div className="space-y-2 max-h-48 overflow-y-auto">
-                        {references.slice(0, 10).map((citation, index) => (
-                          <div key={citation.id || index} className="p-3 bg-blue-50 border-l-4 border-blue-500 rounded text-xs">
+                      <div className="space-y-2 max-h-96 overflow-y-auto">
+                        {references.map((citation, index) => (
+                          <div key={citation.id || index} className="p-3 bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500 rounded text-xs">
                             <div className="flex items-start justify-between">
                               <div className="flex-1">
-                                <div className="font-medium text-gray-900">{citation.cited_title}</div>
+                                <div className="font-medium text-gray-900 dark:text-white">{citation.cited_title}</div>
                                 {citation.cited_authors && citation.cited_authors.length > 0 && (
-                                  <div className="text-gray-600 mt-1">
+                                  <div className="text-gray-600 dark:text-gray-300 mt-1">
                                     {citation.cited_authors.join(', ')}
                                   </div>
                                 )}
                                 {citation.cited_year && (
-                                  <div className="text-gray-500 mt-1">{citation.cited_year}</div>
+                                  <div className="text-gray-500 dark:text-gray-400 mt-1">{citation.cited_year}</div>
                                 )}
                               </div>
-                              {citation.extraction_source && (
-                                <div className="ml-2 flex-shrink-0">
-                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
-                                    {citation.extraction_source}
-                                  </span>
-                                  {citation.confidence_score && (
-                                    <div className="text-xs text-gray-500 mt-1">
-                                      信頼度: {Math.round(citation.confidence_score * 100)}%
-                                    </div>
-                                  )}
-                                </div>
-                              )}
                             </div>
                           </div>
                         ))}
-                        {references.length > 10 && (
-                          <p className="text-xs text-gray-500 ml-4">他 {references.length - 10}件...</p>
-                        )}
                       </div>
                     )}
                   </div>
 
                   {/* Citations: Papers that cite this paper */}
                   <div>
-                    <h4 className="text-sm font-medium text-gray-900 mb-3 flex items-center">
+                    <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-3 flex items-center">
                       <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
                       この論文を引用している論文 ({Array.isArray(citations) ? citations.length : 0}件)
                     </h4>
                     {!citations || citations.length === 0 ? (
-                      <p className="text-sm text-gray-500 ml-4">
+                      <p className="text-sm text-gray-500 dark:text-gray-400 ml-4">
                         この論文を引用している論文は見つかりません
                       </p>
                     ) : (
-                      <div className="space-y-2 max-h-48 overflow-y-auto">
-                        {Array.isArray(citations) ? citations.slice(0, 10).map((citation, index) => (
-                          <div key={citation.id || index} className="p-3 bg-green-50 border-l-4 border-green-500 rounded text-xs">
-                            <div className="font-medium text-gray-900">
+                      <div className="space-y-2 max-h-96 overflow-y-auto">
+                        {Array.isArray(citations) ? citations.map((citation, index) => (
+                          <div key={citation.id || index} className="p-3 bg-green-50 dark:bg-green-900/20 border-l-4 border-green-500 rounded text-xs">
+                            <div className="font-medium text-gray-900 dark:text-white">
                               {/* Show the title of the citing paper */}
                               論文ID: {citation.citing_paper_id}
                             </div>
-                            <div className="text-gray-600 mt-1">
+                            <div className="text-gray-600 dark:text-gray-300 mt-1">
                               この論文を引用しています
                             </div>
                           </div>
                         )) : null}
-                        {Array.isArray(citations) && citations.length > 10 && (
-                          <p className="text-xs text-gray-500 ml-4">他 {citations.length - 10}件...</p>
-                        )}
                       </div>
                     )}
                   </div>
@@ -650,17 +638,97 @@ export default function PaperDetail() {
               )}
 
               {activeTab === 'related' && (
-                <div className="space-y-4">
-                  <h3 className="text-sm font-medium text-gray-900">関連論文</h3>
-                  <p className="text-sm text-gray-500">
-                    関連論文はまだ見つかりません
-                  </p>
-                  <Link 
-                    to={`/network?focus=${paper.id}`}
-                    className="btn btn-outline btn-sm"
-                  >
-                    ネットワークで確認
-                  </Link>
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-3">関連論文</h3>
+                    {relatedPapers.length > 0 ? (
+                      <div className="space-y-3">
+                        {relatedPapers.map((relatedPaper) => (
+                          <div key={relatedPaper.id} className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                            <Link 
+                              to={`/papers/${relatedPaper.id}`}
+                              className="text-sm font-medium text-gray-900 dark:text-white hover:text-primary-600 dark:hover:text-primary-400 line-clamp-2"
+                            >
+                              {relatedPaper.title}
+                            </Link>
+                            <div className="text-xs text-gray-600 dark:text-gray-300 mt-1">
+                              {relatedPaper.authors.slice(0, 2).join(', ')}
+                              {relatedPaper.authors.length > 2 && ` +${relatedPaper.authors.length - 2}`}
+                            </div>
+                            {relatedPaper.year && (
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{relatedPaper.year}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-500 dark:text-gray-400">関連論文が見つかりませんでした</p>
+                    )}
+                  </div>
+
+                  {authorPapers.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-3">同じ著者の他の論文</h4>
+                      <div className="space-y-3">
+                        {authorPapers.map((authorPaper) => (
+                          <div key={authorPaper.id} className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border-l-4 border-blue-500">
+                            <Link 
+                              to={`/papers/${authorPaper.id}`}
+                              className="text-sm font-medium text-gray-900 dark:text-white hover:text-primary-600 dark:hover:text-primary-400 line-clamp-2"
+                            >
+                              {authorPaper.title}
+                            </Link>
+                            <div className="text-xs text-gray-600 dark:text-gray-300 mt-1">
+                              {authorPaper.authors.slice(0, 2).join(', ')}
+                            </div>
+                            {authorPaper.year && (
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{authorPaper.year}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {tagPapers.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-medium text-gray-900 dark:text-white mb-3">似たトピックの論文</h4>
+                      <div className="space-y-3">
+                        {tagPapers.map((tagPaper) => (
+                          <div key={tagPaper.id} className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border-l-4 border-green-500">
+                            <Link 
+                              to={`/papers/${tagPaper.id}`}
+                              className="text-sm font-medium text-gray-900 dark:text-white hover:text-primary-600 dark:hover:text-primary-400 line-clamp-2"
+                            >
+                              {tagPaper.title}
+                            </Link>
+                            <div className="text-xs text-gray-600 dark:text-gray-300 mt-1">
+                              {tagPaper.authors.slice(0, 2).join(', ')}
+                            </div>
+                            {tagPaper.year && (
+                              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{tagPaper.year}</div>
+                            )}
+                            {tagPaper.tags && tagPaper.tags.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-2">
+                                {tagPaper.tags.slice(0, 3).map((tag) => (
+                                  <span 
+                                    key={tag.id}
+                                    className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs"
+                                    style={{
+                                      backgroundColor: tag.color + '20',
+                                      color: tag.color
+                                    }}
+                                  >
+                                    {tag.name}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
                 </div>

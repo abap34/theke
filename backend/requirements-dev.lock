@@ -34,7 +34,11 @@ attrs==25.3.0
     # via aiohttp
 bcrypt==4.3.0
     # via passlib
+beautifulsoup4==4.13.4
+    # via bs4
 black==25.1.0
+bs4==0.0.2
+    # via theke-backend
 certifi==2025.7.14
     # via httpcore
     # via httpx
@@ -167,6 +171,8 @@ sniffio==1.3.1
     # via anthropic
     # via anyio
     # via openai
+soupsieve==2.7
+    # via beautifulsoup4
 sqlalchemy==2.0.41
     # via alembic
     # via theke-backend
@@ -181,6 +187,7 @@ typing-extensions==4.14.1
     # via alembic
     # via anthropic
     # via anyio
+    # via beautifulsoup4
     # via fastapi
     # via mypy
     # via openai

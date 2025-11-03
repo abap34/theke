@@ -53,3 +53,19 @@ def delete_tag(db: Session, tag_id: int) -> bool:
     db.delete(db_tag)
     db.commit()
     return True
+
+
+def get_or_create_tag(db: Session, tag_data: TagCreate) -> Tag:
+    """Get an existing tag by name, or create a new one if it doesn't exist"""
+    # First try to get existing tag by name
+    existing_tag = get_tag_by_name(db, tag_data.name)
+    if existing_tag:
+        return existing_tag
+    
+    # If not found, create new tag
+    return create_tag(db, tag_data)
+
+
+def get_all_tags(db: Session) -> List[Tag]:
+    """Get all tags without pagination"""
+    return db.query(Tag).all()

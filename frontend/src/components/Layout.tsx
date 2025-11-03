@@ -4,13 +4,15 @@ import {
   BookOpen, 
   Tag, 
   Quote, 
-  Network, 
   Search, 
   Settings, 
   Menu,
   X,
-  Plus
+  Plus,
+  Sun,
+  Moon
 } from 'lucide-react'
+import { useDarkMode } from '../hooks/useDarkMode'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -18,7 +20,7 @@ interface LayoutProps {
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: BookOpen },
-  { name: 'Network', href: '/network', icon: Network },
+  { name: 'Search', href: '/search', icon: Search },
   { name: 'Tags', href: '/tags', icon: Tag },
   { name: 'Citations', href: '/citations', icon: Quote },
   { name: 'Settings', href: '/settings', icon: Settings },
@@ -29,11 +31,12 @@ export default function Layout({ children }: LayoutProps) {
   const isDashboard = location.pathname === '/'
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [isHovering, setIsHovering] = useState(false)
+  const { isDarkMode, toggleDarkMode } = useDarkMode()
 
   const shouldShowSidebar = isDashboard || sidebarOpen || isHovering
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
       {/* Left hover trigger for non-dashboard pages */}
       {!isDashboard && (
         <div 
@@ -53,24 +56,37 @@ export default function Layout({ children }: LayoutProps) {
       {/* Sidebar */}
       <div 
         className={`
-          fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 transform
+          fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transform
           ${shouldShowSidebar ? 'translate-x-0' : '-translate-x-full'}
           ${isDashboard ? 'lg:translate-x-0 lg:static lg:inset-0' : 'lg:fixed lg:inset-y-0'}
           transition-transform duration-200 ease-in-out
         `}
         onMouseLeave={() => setIsHovering(false)}
       >
-        <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200">
+        <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200 dark:border-gray-700">
           <Link to="/" className="flex items-center space-x-2">
             <BookOpen className="w-8 h-8 text-primary-600" />
-            <span className="text-xl font-bold text-gray-900">Theke</span>
+            <span className="text-xl font-bold text-gray-900 dark:text-white">Theke</span>
           </Link>
-          <button
-            onClick={() => setSidebarOpen(false)}
-            className="lg:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={toggleDarkMode}
+              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              title={isDarkMode ? 'ライトモードに切り替え' : 'ダークモードに切り替え'}
+            >
+              {isDarkMode ? (
+                <Sun className="w-5 h-5 text-yellow-500" />
+              ) : (
+                <Moon className="w-5 h-5 text-gray-600" />
+              )}
+            </button>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="lg:hidden p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         <nav className="flex-1 px-4 py-6 space-y-1">
@@ -83,8 +99,8 @@ export default function Layout({ children }: LayoutProps) {
                 className={`
                   flex items-center px-3 py-3 text-sm font-medium rounded-lg transition-colors
                   ${isActive 
-                    ? 'bg-primary-50 text-primary-700' 
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                    ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400' 
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white'
                   }
                 `}
                 onClick={() => setSidebarOpen(false)}

@@ -5,7 +5,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from pathlib import Path
 import asyncio
 
-from .api import papers, tags, citations, external, settings as settings_api
+from .api import papers, tags, citations, external, settings as settings_api, auto_tags, recommendations
 from .core.config import settings
 from .core.database import create_tables
 
@@ -57,6 +57,8 @@ app.include_router(tags.router, prefix="/api/tags", tags=["tags"])
 app.include_router(citations.router, prefix="/api/citations", tags=["citations"])
 app.include_router(external.router, prefix="/api/external", tags=["external"])
 app.include_router(settings_api.router, prefix="/api/settings", tags=["settings"])
+app.include_router(auto_tags.router, prefix="/api/auto-tags", tags=["auto-tags"])
+app.include_router(recommendations.router, prefix="/api/recommendations", tags=["recommendations"])
 
 @app.on_event("startup")
 async def startup_event():

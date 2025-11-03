@@ -1,9 +1,10 @@
 from sqlalchemy.orm import Session
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 
 from ..models.citation import Citation
 from ..models.paper import Paper
 from ..schemas.citation import CitationCreate, CitationUpdate
+from ..types import CitationNetwork, GraphNode, GraphEdge
 
 
 def get_citation(db: Session, citation_id: int) -> Optional[Citation]:
@@ -68,7 +69,7 @@ def delete_citations_by_paper(db: Session, paper_id: int) -> int:
     return count
 
 
-def get_citation_network(db: Session) -> Dict[str, Any]:
+def get_citation_network(db: Session) -> CitationNetwork:
     """Get citation network data for graph visualization"""
     papers = db.query(Paper).all()
     citations = db.query(Citation).all()

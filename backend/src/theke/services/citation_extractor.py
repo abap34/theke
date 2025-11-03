@@ -11,6 +11,7 @@ from difflib import SequenceMatcher
 
 from .llm_service import get_llm_provider, AnthropicProvider
 from .pdf_processor import extract_text_from_pdf_file
+from ..schemas.citation import ExtractionSource
 
 
 @dataclass
@@ -23,7 +24,7 @@ class CitationMatch:
     journal: Optional[str] = None
     doi: Optional[str] = None
     confidence: float = 0.0
-    source: str = "unknown"  # "pdf", "semantic_scholar", "merged"
+    source: ExtractionSource = "unknown"
     raw_text: Optional[str] = None
 
 
@@ -34,8 +35,8 @@ class EnhancedCitationExtractor:
         self.semantic_scholar = None
 
     async def __aenter__(self):
-        self.semantic_scholar = SemanticScholarService()
-        await self.semantic_scholar.__aenter__()
+        # Note: SemanticScholarService not available, using None for now
+        self.semantic_scholar = None
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -177,6 +178,11 @@ class EnhancedCitationExtractor:
     ) -> List[CitationMatch]:
         """Semantic Scholarからの引用抽出（フォールバック用）"""
         try:
+            # Semantic Scholar service not available
+            if not self.semantic_scholar:
+                print("Semantic Scholar service not available")
+                return []
+
             # 論文を検索
             paper = None
             if paper_doi:
@@ -274,7 +280,7 @@ class EnhancedCitationExtractor:
                         journal=citation_data.get("journal"),
                         doi=citation_data.get("doi"),
                         confidence=0.7,  # LLM抽出は中程度の信頼性
-                        source="pdf",
+                        source="pdf_extraction",
                     )
                     citations.append(citation)
 
@@ -302,27 +308,78 @@ class EnhancedCitationExtractor:
                     f"References section found, length: {len(references_section)} characters"
                 )
 
-            # より強化された引用パターン
+            # 大幅に強化された引用パターン（多言語・多形式対応）
             citation_patterns = [
-                # [1] Author, A. (2020). Title. Journal.
+                # IEEE/ACM スタイル: [1] Author, "Title," Journal, vol. X, no. Y, pp. Z-W, Year.
                 (
-                    r"\[(\d+)\]\s*([^()]+)\s*\((\d{4})\)\.\s*([^.]+)\.\s*([^.\n]+)",
-                    ["number", "authors", "year", "title", "journal"],
+                    r"\[(\d+)\]\s*([^,""]+),\s*[""\"']([^""\"']+)[""\"'],\s*([^,]+),(?:[^,]*,)*\s*(\d{4})",
+                    ["number", "authors", "title", "journal", "year"],
                 ),
-                # Author, A. (2020). Title. Journal, volume(issue), pages.
+                
+                # より柔軟な番号付き形式: [1] Authors. Title. Journal (Year)
                 (
-                    r"([^()]+)\s*\((\d{4})\)\.\s*([^.]+)\.\s*([^,\n]+)",
+                    r"\[(\d+)\]\s*([^.]+?)\.\s*([^.]+?)\.\s*([^.(\n]+?)(?:\s*\((\d{4})\)|(\d{4}))",
+                    ["number", "authors", "title", "journal", "year1", "year2"],
+                ),
+                
+                # 番号付き形式（年末尾）: [1] Authors. Title. Journal. Year.
+                (
+                    r"\[(\d+)\]\s*([^.]+?)\.\s*([^.]+?)\.\s*([^.]+?)\.\s*(\d{4})",
+                    ["number", "authors", "title", "journal", "year"],
+                ),
+                
+                # APA スタイル: Author, A. (Year). Title. Journal, Volume(Issue), pages.
+                (
+                    r"([^()]+?)\s*\((\d{4})\)\.\s*([^.]+?)\.\s*([^,.\n]+?)(?:,\s*\d+(?:\(\d+\))?(?:,\s*\d+[-–]\d+)?)?\\.?",
                     ["authors", "year", "title", "journal"],
                 ),
-                # Author et al. (2020) Title. Journal.
+                
+                # Vancouver スタイル: 1. Author A. Title. Journal Year;Volume:pages.
                 (
-                    r"([^()]+et al\.?)\s*\((\d{4})\)\s*([^.]+)\.\s*([^.\n]+)",
+                    r"(\d+)\.\s*([^.]+?)\.\s*([^.]+?)\.\s*([^.\n;]+?)\s+(\d{4})",
+                    ["number", "authors", "title", "journal", "year"],
+                ),
+                
+                # MLA スタイル: Author, First. "Title." Journal, vol. X, no. Y, Year, pp. Z-W.
+                (
+                    r"([^,]+),\s*[^.]*\.\s*[""\"']([^""\"']+)[""\"']\.\s*([^,]+),(?:[^,]*,)*\s*(\d{4})",
+                    ["authors", "title", "journal", "year"],
+                ),
+                
+                # 日本語論文形式: 著者: "タイトル", 雑誌名, Vol.X, No.Y, pp.Z-W (年)
+                (
+                    r"([^:\uff1a]+)[\uff1a:]\s*[""\"']([^""\"']+)[""\"'],\s*([^,\uff0c]+),[^,(\uff08]*\((\d{4})\)",
+                    ["authors", "title", "journal", "year"],
+                ),
+                
+                # シンプルな括弧年形式: Author et al. (Year) Title. Journal.
+                (
+                    r"([^()]+?)\s*\((\d{4})\)\s*([^.]+?)\.\s*([^.\n]+?)\\.?",
                     ["authors", "year", "title", "journal"],
                 ),
-                # 番号なしの簡単なパターン
+                
+                # 番号付き簡易形式: [X] Author, Title, Journal, Year
                 (
-                    r"([A-Z][a-zA-Z\s,]+)\s*\((\d{4})\)[.:]?\s*([^.]+)\.\s*([^.\n]+)",
+                    r"\[(\d+)\]\s*([^,]+),\s*([^,]+),\s*([^,\n]+),\s*(\d{4})",
+                    ["number", "authors", "title", "journal", "year"],
+                ),
+                
+                # DOI付き形式: Author (Year) Title. Journal. doi:...
+                (
+                    r"([^()]+?)\s*\((\d{4})\)\s*([^.]+?)\.\s*([^.\n]+?)\.[^\n]*doi[:\s]*([^\s\n]+)",
+                    ["authors", "year", "title", "journal", "doi"],
+                ),
+                
+                # URL付き形式
+                (
+                    r"([^()]+?)\s*\((\d{4})\)\s*([^.]+?)\.\s*([^.\n]+?)\.[^\n]*(?:https?://[^\s\n]+|www\.[^\s\n]+)",
                     ["authors", "year", "title", "journal"],
+                ),
+                
+                # 緩い形式（最後のフォールバック）: First Author et al., Title, Year
+                (
+                    r"([A-Z][a-z]+(?:\s+et\s+al\.?|\s+[A-Z]\.[A-Z]?\\.?)*),\s*([^,]{10,}),\s*(?:[^,]*,)*\s*(\d{4})",
+                    ["authors", "title", "year"],
                 ),
             ]
 
@@ -340,32 +397,60 @@ class EnhancedCitationExtractor:
                             if i < len(groups) and groups[i]:
                                 citation_data[field] = groups[i].strip()
 
-                        # 最低限の情報があるかチェック
-                        if "title" in citation_data and "year" in citation_data:
+                        # 最低限の情報があるかチェック（より柔軟に）
+                        if "title" in citation_data and ("year" in citation_data or "year1" in citation_data or "year2" in citation_data or "authors" in citation_data):
                             authors_str = citation_data.get("authors", "")
                             title = citation_data["title"]
-                            year = int(citation_data["year"])
+                            year = None
+                            
+                            # 年の情報を複数のフィールドから取得
+                            year_candidates = [
+                                citation_data.get("year"),
+                                citation_data.get("year1"), 
+                                citation_data.get("year2")
+                            ]
+                            
+                            for year_candidate in year_candidates:
+                                if year_candidate:
+                                    try:
+                                        year_int = int(year_candidate)
+                                        # 年の妥当性チェック
+                                        if 1900 <= year_int <= 2030:
+                                            year = year_int
+                                            break
+                                    except ValueError:
+                                        continue
+                            
                             journal = citation_data.get("journal", "")
+                            doi = citation_data.get("doi", "")
 
-                            # タイトルのクリーンアップ
-                            title = re.sub(r'^["\']|["\']$', "", title)  # 引用符除去
-                            title = title.strip(".,;:")  # 句読点除去
-
-                            # 短すぎるタイトルをスキップ
-                            if len(title) < 5:
+                            # タイトルの詳細クリーンアップ
+                            title = self._clean_title(title)
+                            
+                            # 短すぎる、または無効なタイトルをスキップ
+                            if len(title) < 8 or self._is_invalid_title(title):
                                 continue
 
                             # 著者名を解析
                             authors = self._parse_authors(authors_str)
+                            
+                            # ジャーナル名をクリーンアップ
+                            journal = self._clean_journal_name(journal)
 
+                            # 信頼性スコアを動的に計算
+                            confidence = self._calculate_extraction_confidence(
+                                title, authors, year, journal, doi, match.group(0)
+                            )
+                            
                             citation = CitationMatch(
                                 title=title,
                                 authors=authors,
                                 year=year,
                                 journal=journal,
-                                confidence=0.6,  # 正規表現の信頼性を少し上げる
-                                source="pdf",
-                                raw_text=match.group(0)[:200],  # デバッグ用に一部保存
+                                doi=doi,
+                                confidence=confidence,
+                                source="pdf_extraction",
+                                raw_text=match.group(0)[:300],  # デバッグ用
                             )
                             citations.append(citation)
                             extracted_count += 1
@@ -374,11 +459,18 @@ class EnhancedCitationExtractor:
                         print(f"Error parsing citation: {e}")
                         continue
 
-            print(f"Regex extraction found {extracted_count} citations")
+            print(f"Regex extraction found {extracted_count} citations from {len(references_section) if references_section else 0} chars")
+            
+            # 抽出率が低い場合の警告
+            if references_section and len(references_section) > 1000 and extracted_count < 5:
+                print("Warning: Low extraction rate. The reference section might have unusual formatting.")
 
             # 重複除去
             unique_citations = self._deduplicate_citations(citations)
             print(f"After deduplication: {len(unique_citations)} citations")
+            
+            # 信頼性でソート
+            unique_citations.sort(key=lambda x: x.confidence, reverse=True)
 
             return unique_citations
 
@@ -387,53 +479,259 @@ class EnhancedCitationExtractor:
             return []
 
     def _find_references_section(self, text: str) -> Optional[str]:
-        """テキストから参考文献セクションを抽出"""
-        # 一般的な参考文献セクションの開始パターン
+        """テキストから参考文献セクションを抽出（改良版 - 後半を優先）"""
+        print("Searching for references section...")
+        
+        # 参考文献セクションの開始パターン（見出し形式考慮）
         patterns = [
-            r"(?i)references?\s*\n",
-            r"(?i)bibliography\s*\n",
-            r"(?i)works\s+cited\s*\n",
-            r"(?i)参考文献\s*\n",
+            # 標準形式
+            r"(?i)(?:^|\n)\s*references?\s*\n",
+            r"(?i)(?:^|\n)\s*bibliography\s*\n", 
+            r"(?i)(?:^|\n)\s*works\s+cited\s*\n",
+            
+            # 番号付き見出し
+            r"(?i)(?:^|\n)\s*\d+\.?\s*references?\s*\n",
+            r"(?i)(?:^|\n)\s*\d+\.\d+\.?\s*references?\s*\n",  # 2.1 References
+            
+            # 大文字見出し形式
+            r"(?:^|\n)\s*REFERENCES?\s*\n",
+            r"(?:^|\n)\s*BIBLIOGRAPHY\s*\n",
+            r"(?:^|\n)\s*WORKS\s+CITED\s*\n",
+            
+            # 装飾文字（アスタリスクや等号など）
+            r"(?i)(?:^|\n)\s*[*=\-_]{2,}\s*references?\s*[*=\-_]{2,}\s*\n",
+            r"(?i)(?:^|\n)\s*references?\s*[*=\-_]{2,}\s*\n",
+            r"(?i)(?:^|\n)\s*[*=\-_]{2,}\s*references?\s*\n",
+            
+            # 角括弧や丸括弧で囲まれた形式
+            r"(?i)(?:^|\n)\s*\[?\s*references?\s*\]?\s*\n",
+            r"(?i)(?:^|\n)\s*\(\s*references?\s*\)\s*\n",
+            
+            # 余分な空白や記号が入った形式
+            r"(?i)(?:^|\n)\s*r\s*e\s*f\s*e\s*r\s*e\s*n\s*c\s*e\s*s?\s*\n",  # 文字間にスペース
+            r"(?i)(?:^|\n)\s*references?\s*[:\.]\s*\n",  # コロンやピリオド付き
+            
+            # センタリングされた見出し（前後に空白）
+            r"(?i)(?:^|\n)\s{3,}references?\s{3,}\n",
+            r"(?i)(?:^|\n)\s{3,}bibliography\s{3,}\n",
+            
+            # 日本語形式
+            r"(?:^|\n)\s*参考文献\s*\n",
+            r"(?:^|\n)\s*引用文献\s*\n",
+            r"(?:^|\n)\s*文\s*献\s*\n",  # 文字間スペース
+            r"(?:^|\n)\s*【参考文献】\s*\n",  # 角括弧
+            r"(?:^|\n)\s*（参考文献）\s*\n",  # 丸括弧
+            r"(?:^|\n)\s*\d+\.?\s*参考文献\s*\n",
+            
+            # その他の言語
+            r"(?i)(?:^|\n)\s*références\s*\n",      # フランス語
+            r"(?i)(?:^|\n)\s*literatur\s*\n",       # ドイツ語  
+            r"(?i)(?:^|\n)\s*bibliografia\s*\n",    # スペイン語・イタリア語
+            r"(?i)(?:^|\n)\s*литература\s*\n",      # ロシア語
         ]
 
+        # 全てのマッチを見つける
+        all_matches = []
         for pattern in patterns:
-            match = re.search(pattern, text)
-            if match:
-                # セクション開始位置から末尾まで、または次のセクションまで
-                start = match.end()
+            for match in re.finditer(pattern, text):
+                all_matches.append((match, pattern))
 
-                # 次のセクション（Appendix、Acknowledgments等）を探す
-                end_patterns = [
-                    r"(?i)\n\s*(appendix|acknowledgments?|author|affiliation)",
-                    r"\n\s*[A-Z][A-Z\s]{10,}\n",  # 大文字のセクションタイトル
-                ]
+        if not all_matches:
+            print("No references section found, trying citation-dense fallback")
+            return self._find_citation_dense_section(text)
 
-                end_pos = len(text)
-                for end_pattern in end_patterns:
-                    end_match = re.search(end_pattern, text[start:])
-                    if end_match:
-                        end_pos = start + end_match.start()
-                        break
+        # 文書の後半75%の範囲内で最も早く現れるマッチを選択
+        text_length = len(text)
+        threshold = text_length * 0.25  # 最初の25%は無視
+        
+        # 後半のマッチを優先
+        valid_matches = [(match, pattern) for match, pattern in all_matches 
+                        if match.start() > threshold]
+        
+        if not valid_matches:
+            # 後半になければ全体で最後のマッチを使用
+            print("No references in latter part, using last occurrence")
+            best_match, best_pattern = all_matches[-1]
+        else:
+            # 後半で最も早く現れるマッチ
+            best_match, best_pattern = min(valid_matches, key=lambda x: x[0].start())
+        
+        start = best_match.end()
+        position_percent = start / text_length * 100
+        print(f"Found references at position {start} ({position_percent:.1f}% through document)")
+        
+        # セクション終了位置を探す
+        end_patterns = [
+            r"(?i)(?:^|\n)\s*(?:appendix|appendices)\s*(?:\n|$)",
+            r"(?i)(?:^|\n)\s*(?:acknowledgments?|acknowledgements?)\s*(?:\n|$)",
+            r"(?i)(?:^|\n)\s*(?:author\s+information|funding|data\s+availability)\s*(?:\n|$)",
+            r"(?:^|\n)\s*(?:付録|謝辞|著者情報)\s*(?:\n|$)",
+        ]
 
-                return text[start:end_pos]
+        end_pos = len(text)
+        for end_pattern in end_patterns:
+            end_match = re.search(end_pattern, text[start:])
+            if end_match:
+                potential_end = start + end_match.start()
+                if potential_end - start > 500:  # 最低500文字
+                    end_pos = potential_end
+                    print(f"Found end section, references length: {end_pos - start}")
+                    break
 
-        return None
+        references_section = text[start:end_pos]
+        
+        # 引用密度をチェック（品質確認）
+        citation_indicators = len(re.findall(r'\[\d+\]|\(\d{4}\)|et al\.', references_section))
+        word_count = len(references_section.split())
+        density = citation_indicators / max(word_count, 1)
+        
+        print(f"References section: {len(references_section)} chars, density: {density:.3f}")
+        
+        # 密度が非常に低い場合はフォールバック
+        if density < 0.005 and len(references_section) > 1000:
+            print("Low citation density, trying fallback method")
+            fallback = self._find_citation_dense_section(text)
+            if fallback:
+                return fallback
+        
+        return references_section if len(references_section) > 100 else None
 
     def _parse_authors(self, authors_str: str) -> List[str]:
-        """著者文字列を個別の著者リストに分解"""
-        # 一般的な著者分割パターン
-        authors_str = authors_str.replace(" and ", ", ").replace(" & ", ", ")
-        authors = [author.strip() for author in authors_str.split(",")]
-
-        # クリーンアップ
+        """著者文字列を個別の著者リストに分解（多言語対応）"""
+        if not authors_str or authors_str.strip() == "":
+            return []
+        
+        # 一般的な区切り文字を統一
+        authors_str = re.sub(r'\s+and\s+|\s*&\s*|\s*；\s*|\s*;\s*', ', ', authors_str, flags=re.IGNORECASE)
+        authors_str = re.sub(r'\s*、\s*', ', ', authors_str)  # 日本語の読点
+        
+        # カンマで分割
+        authors = [author.strip() for author in authors_str.split(",") if author.strip()]
+        
+        # 各著者名をクリーンアップ
         cleaned_authors = []
         for author in authors:
-            author = re.sub(r"\[\d+\]", "", author)  # 番号を除去
-            author = author.strip("., ")
-            if author and len(author) > 2:
-                cleaned_authors.append(author)
-
-        return cleaned_authors[:10]  # 最大10人まで
+            # 番号や括弧内情報を除去
+            author = re.sub(r'\[\d+\]|\(\d+\)', '', author)
+            # 余分な記号を除去
+            author = re.sub(r'^[.,:;"\']+|[.,:;"\']+$', '', author)
+            # 余分な空白を整理
+            author = re.sub(r'\s+', ' ', author).strip()
+            
+            # 妥当性チェック
+            if (len(author) > 2 and 
+                not author.lower() in ['et al', 'et al.', 'others', 'など'] and
+                not re.match(r'^\d+$', author)):
+                
+                # 名前の形式を正規化
+                author = self._normalize_author_name(author)
+                if author:
+                    cleaned_authors.append(author)
+        
+        return cleaned_authors[:15]  # 最大15人まで
+    
+    def _normalize_author_name(self, name: str) -> Optional[str]:
+        """著者名を正規化"""
+        # 既に正規化されている場合
+        if len(name.split()) <= 4 and not re.search(r'[0-9]{3,}', name):
+            return name
+        
+        # 長すぎる場合は無効とみなす
+        if len(name) > 50:
+            return None
+            
+        # 特殊文字が多すぎる場合は無効
+        special_char_ratio = len(re.findall(r'[^a-zA-Z\s.-]', name)) / max(len(name), 1)
+        if special_char_ratio > 0.3:
+            return None
+            
+        return name
+    
+    def _clean_title(self, title: str) -> str:
+        """タイトルをクリーンアップ"""
+        # 引用符を除去
+        title = re.sub(r'^["""\'''][\s]*|[\s]*["""\''']$', '', title)
+        # 末尾の句読点を整理
+        title = re.sub(r'[.,:;]+$', '', title)
+        # 複数の空白を単一に
+        title = re.sub(r'\s+', ' ', title)
+        # 先頭・末尾の空白除去
+        title = title.strip()
+        
+        return title
+    
+    def _clean_journal_name(self, journal: str) -> str:
+        """ジャーナル名をクリーンアップ"""
+        if not journal:
+            return ""
+            
+        # 巻号情報を除去
+        journal = re.sub(r',?\s*(?:vol\.?|volume)\s*\d+.*$', '', journal, flags=re.IGNORECASE)
+        journal = re.sub(r',?\s*\d+\s*\(\d+\).*$', '', journal)
+        # 末尾の句読点を除去
+        journal = re.sub(r'[.,:;]+$', '', journal)
+        # 空白整理
+        journal = re.sub(r'\s+', ' ', journal).strip()
+        
+        return journal
+    
+    def _is_invalid_title(self, title: str) -> bool:
+        """無効なタイトルかどうかチェック"""
+        # 数字だけ
+        if re.match(r'^\d+$', title):
+            return True
+        # URLっぽい
+        if 'http' in title.lower() or 'www.' in title.lower():
+            return True
+        # DOIっぽい
+        if title.lower().startswith('doi:') or title.startswith('10.'):
+            return True
+        # ページ番号っぽい
+        if re.match(r'^pp?\.?\s*\d', title.lower()):
+            return True
+        # 巻号情報っぽい
+        if re.match(r'^vol\.?\s*\d|^\d+\s*\(\d+\)', title.lower()):
+            return True
+        
+        return False
+    
+    def _calculate_extraction_confidence(self, title: str, authors: List[str], 
+                                       year: Optional[int], journal: str, 
+                                       doi: str, raw_text: str) -> float:
+        """抽出の信頼性スコアを計算"""
+        confidence = 0.3  # ベーススコア
+        
+        # タイトルの質
+        if len(title) > 15:
+            confidence += 0.2
+        if len(title) > 30:
+            confidence += 0.1
+        
+        # 著者情報
+        if authors:
+            confidence += 0.15
+            if len(authors) > 1:
+                confidence += 0.05
+        
+        # 年の有無
+        if year:
+            confidence += 0.15
+        
+        # ジャーナル情報
+        if journal and len(journal) > 5:
+            confidence += 0.1
+        
+        # DOIの有無
+        if doi:
+            confidence += 0.1
+        
+        # raw_textの構造的特徴
+        if '[' in raw_text and ']' in raw_text:
+            confidence += 0.05  # 番号付き引用
+        if '(' in raw_text and ')' in raw_text:
+            confidence += 0.05  # 括弧付き年
+        
+        return min(confidence, 0.9)  # 最大0.9
 
     def _merge_citation_sources(
         self,
