@@ -1,11 +1,9 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { 
-  BookOpen, 
-  Tag, 
-  Quote, 
-  Search, 
-  Settings, 
+import {
+  BookOpen,
+  Tag,
+  Settings,
   Menu,
   X,
   Plus,
@@ -20,9 +18,7 @@ interface LayoutProps {
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: BookOpen },
-  { name: 'Search', href: '/search', icon: Search },
   { name: 'Tags', href: '/tags', icon: Tag },
-  { name: 'Citations', href: '/citations', icon: Quote },
   { name: 'Settings', href: '/settings', icon: Settings },
 ]
 
@@ -39,7 +35,7 @@ export default function Layout({ children }: LayoutProps) {
     <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
       {/* Left hover trigger for non-dashboard pages */}
       {!isDashboard && (
-        <div 
+        <div
           className="fixed inset-y-0 left-0 z-30 w-4 bg-transparent"
           onMouseEnter={() => setIsHovering(true)}
         />
@@ -47,14 +43,14 @@ export default function Layout({ children }: LayoutProps) {
 
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 z-40 bg-black bg-opacity-50 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
       {/* Sidebar */}
-      <div 
+      <div
         className={`
           fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transform
           ${shouldShowSidebar ? 'translate-x-0' : '-translate-x-full'}
@@ -65,8 +61,6 @@ export default function Layout({ children }: LayoutProps) {
       >
         <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200 dark:border-gray-700">
           <Link to="/" className="flex items-center space-x-2">
-            <BookOpen className="w-8 h-8 text-primary-600" />
-            <span className="text-xl font-bold text-gray-900 dark:text-white">Theke</span>
           </Link>
           <div className="flex items-center space-x-2">
             <button
@@ -98,8 +92,8 @@ export default function Layout({ children }: LayoutProps) {
                 to={item.href}
                 className={`
                   flex items-center px-3 py-3 text-sm font-medium rounded-lg transition-colors
-                  ${isActive 
-                    ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400' 
+                  ${isActive
+                    ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400'
                     : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white'
                   }
                 `}

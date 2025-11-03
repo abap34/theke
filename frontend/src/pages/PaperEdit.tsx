@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { ArrowLeft, Upload, X, Plus, Save } from 'lucide-react'
-import { papersApi, tagsApi, citationsApi } from '@/services/api'
+import { papersApi, tagsApi } from '@/services/api'
 import { PaperCreate, PaperUpdate, Tag } from '@/types'
 import { toast } from '@/components/ui/Toaster'
 
@@ -28,7 +28,6 @@ export default function PaperEdit() {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [useLlmExtraction, setUseLlmExtraction] = useState(false)
-  const [autoExtractCitations, setAutoExtractCitations] = useState(false)
   const [isExtracting, setIsExtracting] = useState(false)
   const [extractedMetadata, setExtractedMetadata] = useState<any>(null)
   const [isInitialExtracting, setIsInitialExtracting] = useState(false)
@@ -119,17 +118,6 @@ export default function PaperEdit() {
       // Add 0.5 second delay after PDF upload
       await new Promise(resolve => setTimeout(resolve, 500))
       
-      // 自動引用抽出が有効な場合、引用抽出完了を待つ
-      if (autoExtractCitations) {
-        try {
-          toast.info('引用抽出中', '引用を抽出しています。しばらくお待ちください...')
-          await citationsApi.extractFromPaper(newPaper.id)
-          toast.success('引用抽出完了', '引用の抽出が完了しました')
-        } catch (error) {
-          console.error('Citation extraction failed:', error)
-          toast.warning('引用抽出失敗', '手動で引用抽出を行ってください')
-        }
-      }
       
       // すべての処理が完了してから画面遷移
       navigate(`/papers/${newPaper.id}`)
@@ -269,11 +257,6 @@ export default function PaperEdit() {
                 '論文を保存しています...'
               }
             </p>
-            {autoExtractCitations && uploadPaperMutation.isPending && (
-              <p className="text-xs text-blue-600">
-                アップロード後、自動で引用抽出を行います。
-              </p>
-            )}
           </div>
         </div>
       )}

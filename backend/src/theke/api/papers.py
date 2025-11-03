@@ -12,7 +12,6 @@ from ..schemas import paper as paper_schema, job as job_schema
 from ..crud import paper as paper_crud, job as job_crud
 from ..services.pdf_processor import extract_metadata_from_pdf
 from ..services.llm_service import generate_summary
-from ..services.thumbnail_generator import thumbnail_generator
 from ..utils.errors import handle_service_errors
 
 router = APIRouter()
@@ -221,29 +220,55 @@ def delete_paper(paper_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{paper_id}/thumbnail")
-def get_paper_thumbnail(paper_id: int, db: Session = Depends(get_db)):
+async def get_paper_thumbnail(paper_id: int, db: Session = Depends(get_db)):
     """Get or generate a thumbnail for a paper's PDF"""
     paper = paper_crud.get_paper(db=db, paper_id=paper_id)
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
-    
+
     if not paper.pdf_path:
         raise HTTPException(status_code=404, detail="Paper does not have a PDF file")
-    
+
     # Check if PDF file exists
     if not os.path.exists(paper.pdf_path):
         raise HTTPException(status_code=404, detail="PDF file not found")
-    
-    # Try to get existing thumbnail
-    thumbnail_path = thumbnail_generator.get_thumbnail_path(paper.pdf_path)
-    
+
+    # Generate thumbnail path
+    from pathlib import Path
+    upload_dir = Path(settings.UPLOAD_DIR)
+    thumbnails_dir = upload_dir / "thumbnails"
+    thumbnails_dir.mkdir(exist_ok=True)
+
+    pdf_filename = Path(paper.pdf_path).stem
+    thumbnail_path = thumbnails_dir / f"{pdf_filename}.png"
+
     # Generate thumbnail if it doesn't exist
-    if not thumbnail_path:
-        thumbnail_path = thumbnail_generator.generate_thumbnail(paper.pdf_path)
-    
-    if not thumbnail_path or not os.path.exists(thumbnail_path):
+    if not thumbnail_path.exists():
+        try:
+            import fitz  # PyMuPDF
+
+            # Open PDF
+            pdf_document = fitz.open(paper.pdf_path)
+
+            # Get first page
+            first_page = pdf_document[0]
+
+            # Render page to image (matrix for zoom/resolution)
+            zoom = 2.0  # Zoom factor for higher quality
+            mat = fitz.Matrix(zoom, zoom)
+            pix = first_page.get_pixmap(matrix=mat)
+
+            # Save as PNG
+            pix.save(str(thumbnail_path))
+
+            pdf_document.close()
+        except Exception as e:
+            # If thumbnail generation fails, return 500
+            raise HTTPException(status_code=500, detail=f"Failed to generate thumbnail: {str(e)}")
+
+    if not thumbnail_path.exists():
         raise HTTPException(status_code=500, detail="Failed to generate thumbnail")
-    
+
     return FileResponse(
         thumbnail_path,
         media_type="image/png",
@@ -337,11 +362,9 @@ async def generate_paper_summary(
             paper_id=paper_id,
             parameters=parameters
         )
-        
-        # Start background processing
-        from ..services.background_tasks import start_background_task
-        start_background_task(job.id, "summary_generation")
-        
+
+        # Note: Background task processing removed - implement if needed
+
         return job_schema.SummaryJobResponse(
             job_id=job.id,
             status="pending",

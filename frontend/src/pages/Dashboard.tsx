@@ -1,5 +1,5 @@
 import { toast } from '@/components/ui/Toaster'
-import { citationsApi, papersApi } from '@/services/api'
+import { papersApi } from '@/services/api'
 import { Paper } from '@/types'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDebounce } from '@/hooks/useDebounce'
@@ -361,25 +361,6 @@ interface PaperCardProps {
   viewMode: 'grid' | 'list'
 }
 
-// Hook to fetch citation data for a paper
-function usePaperCitations(paperId: number) {
-  return useQuery({
-    queryKey: ['paper-citations', paperId],
-    queryFn: async () => {
-      const allCitations = await citationsApi.getAll()
-
-      // References: papers this paper cites
-      const references = allCitations.filter(c => c.citing_paper_id === paperId)
-
-      // Citations: papers that cite this paper
-      const citations = allCitations.filter(c => c.cited_paper_id === paperId)
-
-      return { references, citations }
-    },
-    enabled: !!paperId
-  })
-}
-
 function PaperCard({ paper, viewMode }: PaperCardProps) {
   const queryClient = useQueryClient()
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -457,9 +438,6 @@ function PaperCard({ paper, viewMode }: PaperCardProps) {
                     {paper.abstract}
                   </p>
                 )}
-
-                {/* Citation Information */}
-                <CitationInfo paperId={paper.id} viewMode="list" />
               </div>
 
               <div className="flex items-center space-x-2 ml-4">
@@ -551,9 +529,6 @@ function PaperCard({ paper, viewMode }: PaperCardProps) {
           <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">{paper.year}</div>
         )}
 
-        {/* Citation Information */}
-        <CitationInfo paperId={paper.id} viewMode="grid" />
-
         {/* Tags */}
         {paper.tags && paper.tags.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-2">
@@ -605,65 +580,6 @@ function PaperCard({ paper, viewMode }: PaperCardProps) {
           </div>
         </div>
       </div>
-    </div>
-  )
-}
-
-// Citation Information Component
-interface CitationInfoProps {
-  paperId: number
-  viewMode: 'grid' | 'list'
-}
-
-function CitationInfo({ paperId, viewMode }: CitationInfoProps) {
-  const { data: citationData, isLoading } = usePaperCitations(paperId)
-
-  if (isLoading || !citationData) {
-    return null
-  }
-
-  const { references, citations } = citationData
-  const hasReferences = references && references.length > 0
-  const hasCitations = citations && citations.length > 0
-
-  if (!hasReferences && !hasCitations) {
-    return null
-  }
-
-  if (viewMode === 'list') {
-    return (
-      <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
-        {hasReferences && (
-          <div className="flex items-center gap-1">
-            <ArrowRight className="w-3 h-3" />
-            <span>引用: {references.length}件</span>
-          </div>
-        )}
-        {hasCitations && (
-          <div className="flex items-center gap-1">
-            <ArrowLeft className="w-3 h-3" />
-            <span>被引用: {citations.length}件</span>
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  // Grid view
-  return (
-    <div className="flex items-center justify-between text-xs text-gray-500 mb-2">
-      {hasReferences && (
-        <div className="flex items-center gap-1">
-          <ArrowRight className="w-3 h-3" />
-          <span>{references.length}</span>
-        </div>
-      )}
-      {hasCitations && (
-        <div className="flex items-center gap-1">
-          <ArrowLeft className="w-3 h-3" />
-          <span>{citations.length}</span>
-        </div>
-      )}
     </div>
   )
 }

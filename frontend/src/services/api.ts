@@ -6,9 +6,6 @@ import type {
   Tag,
   TagCreate,
   TagUpdate,
-  Citation,
-  CitationCreate,
-  ExternalPaper,
   SearchFilters,
   PaginatedResponse
 } from '@/types'
@@ -156,139 +153,7 @@ export const tagsApi = {
   }
 }
 
-// Citations API
-export const citationsApi = {
-  getAll: async (): Promise<Citation[]> => {
-    const response = await api.get('/api/citations')
-    return response.data
-  },
-
-  create: async (citation: CitationCreate): Promise<Citation> => {
-    const response = await api.post('/api/citations', citation)
-    return response.data
-  },
-
-
-  formatCitation: async (paperId: number, style: string): Promise<string> => {
-    const response = await api.get(`/api/citations/format/${style}`, {
-      params: { paper_id: paperId }
-    })
-    return response.data
-  },
-
-  extractFromPaper: async (paperId: number): Promise<Citation[]> => {
-    console.log(`Starting comprehensive citation extraction for paper ${paperId}...`);
-    
-    try {
-      // Use the main endpoint which uses BidirectionalCitationService for comprehensive extraction
-      const response = await api.post(`/api/citations/extract/${paperId}`, null, {
-        params: {
-          direction: 'both',        // Extract both references and citing papers
-          method: 'comprehensive'   // Use comprehensive method - pure union without filtering
-        }
-      });
-      
-      const citations = response.data || [];
-      console.log(`Main endpoint returned ${citations.length} citations`);
-      
-      return citations;
-    } catch (error: any) {
-      console.error('Citation extraction failed:', error);
-      const errorMessage = error.response?.data?.detail || error.message || 'Unknown error';
-      throw new Error(`引用抽出に失敗しました: ${errorMessage}`);
-    }
-  }
-}
-
-// External search API
-export const externalApi = {
-  searchArxiv: async (query: string): Promise<ExternalPaper[]> => {
-    const response = await api.get('/api/external/arxiv/search', {
-      params: { query }
-    })
-    return response.data
-  },
-
-  searchPubmed: async (query: string): Promise<ExternalPaper[]> => {
-    const response = await api.get('/api/external/pubmed/search', {
-      params: { query }
-    })
-    return response.data
-  },
-
-  searchCrossref: async (query: string): Promise<ExternalPaper[]> => {
-    const response = await api.get('/api/external/crossref/search', {
-      params: { query }
-    })
-    return response.data
-  },
-
-  searchSemanticScholar: async (query: string): Promise<ExternalPaper[]> => {
-    const response = await api.get('/api/external/semantic-scholar/search', {
-      params: { query }
-    })
-    return response.data
-  },
-
-  addFromExternal: async (externalPaper: ExternalPaper): Promise<Paper> => {
-    const response = await api.post('/api/citations/add-from-external', externalPaper)
-    return response.data
-  },
-
-  searchAll: async (query: string, limit: number = 10, sources: string[] = ['arxiv', 'crossref', 'semantic_scholar']): Promise<ExternalPaper[]> => {
-    const response = await api.get('/api/external/search-all', {
-      params: { 
-        query,
-        limit,
-        sources: sources.join(',')
-      }
-    })
-    return response.data
-  }
-}
-
 // Settings API
-// Recommendation API
-export const recommendationApi = {
-  getRelatedPapers: async (paperId: number, limit: number = 10): Promise<Paper[]> => {
-    const response = await api.get(`/api/recommendations/related/${paperId}`, {
-      params: { limit }
-    })
-    return response.data
-  },
-
-  getSimilarByAuthor: async (paperId: number, limit: number = 5): Promise<Paper[]> => {
-    const response = await api.get(`/api/recommendations/by-author/${paperId}`, {
-      params: { limit }
-    })
-    return response.data
-  },
-
-  getSimilarByTags: async (paperId: number, limit: number = 5): Promise<Paper[]> => {
-    const response = await api.get(`/api/recommendations/by-tags/${paperId}`, {
-      params: { limit }
-    })
-    return response.data
-  }
-}
-
-// Auto-tagging API
-export const autoTagApi = {
-  suggestTags: async (paperId: number): Promise<{suggested_tags: string[], confidence: number}[]> => {
-    const response = await api.post(`/api/auto-tags/suggest/${paperId}`)
-    return response.data
-  },
-
-  applyAutoTags: async (paperId: number, tags: string[]): Promise<void> => {
-    await api.post(`/api/auto-tags/apply/${paperId}`, { tags })
-  },
-
-  getPresetTags: async (): Promise<{cs_topics: string[], ml_topics: string[], general: string[]}> => {
-    const response = await api.get('/api/auto-tags/presets')
-    return response.data
-  }
-}
-
 export const settingsApi = {
   getSummaryPrompt: async (): Promise<{prompt: string}> => {
     const response = await api.get('/api/settings/summary-prompt')
